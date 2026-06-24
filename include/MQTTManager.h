@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include "ConfigManager.h"
 
 /**
@@ -21,7 +22,6 @@ public:
         _onConnect = onConnect;
 
         _client.setClient(_wifiClient);
-        _client.setServer(cfg.cfg.mqttBroker, cfg.cfg.mqttPort);
         _client.setCallback([this](char* t, uint8_t* p, unsigned int l) {
             _handler(String(t), String((char*)p, l));
         });
@@ -55,28 +55,56 @@ public:
         return _client.subscribe(topic);
     }
 
-    bool connected() const { return _client.connected(); }
+    bool connected() { return _client.connected(); }
 
 private:
     WiFiClient     _wifiClient;
     PubSubClient   _client;
-    ConfigManager* _cfg           = nullptr;
+    ConfigManager* _cfg            = nullptr;
     CommandHandler   _handler;
     OnConnectHandler _onConnect;
     unsigned long    _lastHeartbeat = 0;
     uint8_t          _retries       = 0;
+    IPAddress        _resolvedBroker;
+
+    // Resolve broker address (supports IP strings and *.local mDNS hostnames)
+    bool _resolveBroker() {
+        const char* broker = _cfg->cfg.mqttBroker;
+        if (broker[0] == '\0') return false;
+
+        // Try direct IP parse first
+        if (_resolvedBroker.fromString(broker)) return true;
+
+        // mDNS resolution (works for "plastico.local" etc.)
+        Serial.printf("[MQTT] Resolving mDNS: %s\n", broker);
+        _resolvedBroker = MDNS.queryHost(broker, 2000);
+        if (_resolvedBroker == IPAddress(0, 0, 0, 0)) {
+            Serial.println("[MQTT] mDNS resolution failed");
+            return false;
+        }
+        Serial.printf("[MQTT] Resolved %s → %s\n", broker,
+                      _resolvedBroker.toString().c_str());
+        return true;
+    }
 
     void _reconnect() {
         if (_retries > 5) {
-            // Back-off: wait 30 s before trying again
             static unsigned long _backoffUntil = 0;
             if (millis() < _backoffUntil) return;
             _backoffUntil = millis() + 30000;
             _retries = 0;
         }
 
-        Serial.printf("[MQTT] Connecting to %s:%u ...\n",
-                      _cfg->cfg.mqttBroker, _cfg->cfg.mqttPort);
+        if (!_resolveBroker()) {
+            _retries++;
+            return;
+        }
+
+        _client.setServer(_resolvedBroker, _cfg->cfg.mqttPort);
+        Serial.printf("[MQTT] Connecting to %s (%s):%u ...\n",
+                      _cfg->cfg.mqttBroker,
+                      _resolvedBroker.toString().c_str(),
+                      _cfg->cfg.mqttPort);
 
         const bool ok = _client.connect(
             _cfg->cfg.hostname,

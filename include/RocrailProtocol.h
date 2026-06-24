@@ -35,6 +35,11 @@ public:
         _turnouts[t->rocrailId] = t;
     }
 
+    // Map a Rocrail block/sensor ID to a MUX channel index
+    void registerSensorRb(const String& rocrailId, uint8_t muxCh) {
+        _sensorsRb[muxCh] = rocrailId;
+    }
+
     // ── Call once after MQTT is connected ────────────────────────────
     void publishOnline(MQTTManager& mqtt, const String& boardName) {
         String sMsg = "{\"module\":\"" + boardName + "\",\"status\":\"online\"}";
@@ -51,6 +56,21 @@ public:
         } else if (topic == ROCRAIL_TOPIC_SW_CMD) {
             _handleTurnout(payload, mqtt, mux);
         }
+    }
+
+    // ── Publish occupancy feedback for a sensor channel ─────────────
+    // Call from main.cpp whenever a sensor state changes.
+    // Topic: rocrail/service/info  XML: <fb id="bk1" state="free|occupied"/>
+    void publishSensorFeedback(uint8_t muxCh, bool occupied, MQTTManager& mqtt) {
+        auto it = _sensorsRb.find(muxCh);
+        if (it == _sensorsRb.end()) return;   // not mapped to Rocrail
+
+        const String& id  = it->second;
+        String state      = occupied ? "occupied" : "free";
+        String xml        = "<fb id=\"" + id + "\" state=\"" + state + "\"/>";
+        mqtt.publishRaw(ROCRAIL_TOPIC_SW_FB, xml, false);
+        Serial.printf("[ROCR] Sensor %s (ch%u) → %s\n",
+                      id.c_str(), muxCh, state.c_str());
     }
 
     // ── Turnout pulse watchdog – call every loop() ───────────────────
@@ -70,8 +90,9 @@ private:
         SignalRGBChannel* ch;
     };
 
-    std::map<String, SignalEntry>   _signals;
+    std::map<String, SignalEntry>     _signals;
     std::map<String, TurnoutChannel*> _turnouts;
+    std::map<uint8_t, String>         _sensorsRb;   // muxCh → rocrailId
 
     // ── XML helpers ───────────────────────────────────────────────────
     static String _attr(const String& xml, const String& name) {

@@ -30,10 +30,15 @@ std::vector<std::unique_ptr<IChannel>> channels;
 std::map<uint8_t, RelayChannel*>       relays;
 std::map<uint8_t, SensorChannel*>      sensors;
 std::map<uint8_t, SerialRGBChannel*>   strips;
+std::map<uint8_t, SignalRGBChannel*>   signalChannels;
+std::map<uint8_t, MarmottaChannel*>    marmottas;
 
 // Rocrail objects (signals + turnouts)
 RocrailProtocol rocrail;
 std::vector<std::unique_ptr<TurnoutChannel>> turnouts;
+
+// Live status shared with the web server
+LiveStatus liveStatus;
 
 // Scan timing
 static unsigned long lastScanMs   = 0;
@@ -135,7 +140,17 @@ void setup() {
     tofMgr.begin(tof, mqtt, cfgMgr);
 
     // ── Phase 5: Web config UI ────────────────────────────────────────
-    webConfig.begin(cfgMgr);
+    webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
+                                             const String& cmd, const String& extra) {
+        // Manual test from web UI → inject as MQTT command
+        if (type == "signal") {
+            String xml = "<sg id=\"" + id + "\" cmd=\"aspect\" aspect=\"" + cmd + "\"/>";
+            rocrail.handle(ROCRAIL_TOPIC_SG_CMD, xml, mqtt, mux);
+        } else if (type == "turnout") {
+            String xml = "<sw id=\"" + id + "\" cmd=\"" + cmd + "\" addr1=\"0\"/>";
+            rocrail.handle(ROCRAIL_TOPIC_SW_CMD, xml, mqtt, mux);
+        }
+    });
 
     Serial.println("==== Boot complete ====\n");
 }
@@ -158,6 +173,16 @@ void loop() {
 
     // Turnout pulse watchdog (cut coil power after pulseDurationMs)
     rocrail.update(mux);
+
+    // Keep live status up to date (cheap, runs every loop)
+    liveStatus.mqttConnected = mqtt.connected();
+    liveStatus.rssi          = (int8_t)WiFi.RSSI();
+    for (auto& [ch, s] : sensors) {
+        liveStatus.sensorStates[ch] = s->occupied;
+    }
+    for (auto& t : turnouts) {
+        liveStatus.turnoutStates[t->rocrailId] = t->stateStr();
+    }
 }
 
 // ── Phase 3b: build Rocrail signal and turnout objects ───────────────
@@ -171,17 +196,14 @@ void buildRocrailObjects() {
         const SignalConfig& sc = cfgMgr.cfg.signals[i];
         if (sc.id[0] == '\0') continue;
 
-        // Find the SignalRGBChannel that starts at chR
+        // Look up existing SignalRGBChannel by chR, or auto-create
         SignalRGBChannel* found = nullptr;
-        for (auto& ch : channels) {
-            if (ch->ch == sc.chR) {
-                found = dynamic_cast<SignalRGBChannel*>(ch.get());
-                break;
-            }
-        }
-        if (!found) {
-            // Auto-create if not in pin_map (allows Rocrail-only mode)
+        auto sigIt = signalChannels.find(sc.chR);
+        if (sigIt != signalChannels.end()) {
+            found = sigIt->second;
+        } else {
             auto* sig = new SignalRGBChannel(sc.chR);
+            signalChannels[sc.chR] = sig;
             channels.emplace_back(sig);
             found = sig;
             Serial.printf("[ROCR] Auto-created SignalRGBChannel for %s (ch %u)\n",
@@ -206,8 +228,18 @@ void buildRocrailObjects() {
                       tc.id, tc.chS, tc.chD, tc.pulse);
     }
 
-    Serial.printf("[ROCR] %u signals, %u turnouts registered\n",
-                  cfgMgr.cfg.numSignals, cfgMgr.cfg.numTurnouts);
+    // Sensor → Rocrail block mapping
+    for (uint8_t i = 0; i < cfgMgr.cfg.numSensorsRb; i++) {
+        const SensorRbConfig& sr = cfgMgr.cfg.sensorsRb[i];
+        if (sr.rocrailId[0] == '\0') continue;
+        rocrail.registerSensorRb(sr.rocrailId, sr.muxCh);
+        Serial.printf("[ROCR] Sensor rb '%s' → MUX ch%u\n",
+                      sr.rocrailId, sr.muxCh);
+    }
+
+    Serial.printf("[ROCR] %u signals, %u turnouts, %u sensor-rb registered\n",
+                  cfgMgr.cfg.numSignals, cfgMgr.cfg.numTurnouts,
+                  cfgMgr.cfg.numSensorsRb);
 }
 
 // ── Phase 3: populate channel objects from config ────────────────────
@@ -216,6 +248,8 @@ void buildChannelObjects() {
     relays.clear();
     sensors.clear();
     strips.clear();
+    signalChannels.clear();
+    marmottas.clear();
 
     for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
         switch (cfgMgr.cfg.pinMap[i]) {
@@ -238,6 +272,7 @@ void buildChannelObjects() {
 
             case ChannelRole::SIGNAL_RGB: {
                 auto* sig = new SignalRGBChannel(i);
+                signalChannels[i] = sig;
                 channels.emplace_back(sig);
                 Serial.printf("[MAP] Ch%02u → Signal RGB (ch %u-%u)\n", i, i, i + 2);
                 i += 2;  // consumes three consecutive MUX channels
@@ -246,6 +281,7 @@ void buildChannelObjects() {
 
             case ChannelRole::MARMOTTA: {
                 auto* m = new MarmottaChannel(i);
+                marmottas[i] = m;
                 channels.emplace_back(m);
                 Serial.printf("[MAP] Ch%02u → Marmotta\n", i);
                 break;
@@ -281,6 +317,8 @@ void publishSensorStates() {
         if (s->occupied != prevSensorState[ch]) {
             prevSensorState[ch] = s->occupied;
             anyChange = true;
+            // Rocrail block-detector feedback only on actual change
+            rocrail.publishSensorFeedback(ch, s->occupied, mqtt);
         }
     }
 
@@ -352,13 +390,10 @@ void onMqttCommand(const String& topic, const String& payload) {
     }
 
     // ── Marmotta trigger ──────────────────────────────────────────────
-    for (auto& chObj : channels) {
-        if (chObj->ch == ch) {
-            if (auto* m = dynamic_cast<MarmottaChannel*>(chObj.get())) {
-                uint32_t ms = doc["ms"] | 200;
-                m->trigger(mux, ms);
-            }
-        }
+    auto marmIt = marmottas.find(ch);
+    if (marmIt != marmottas.end()) {
+        uint32_t ms = doc["ms"] | 200;
+        marmIt->second->trigger(mux, ms);
     }
 }
 

@@ -13,6 +13,12 @@ struct SignalConfig {
     uint8_t  chV      = 2;       // MUX channel for Green / C lamp
 };
 
+// ── Rocrail sensor (block detector) config entry ─────────────────────
+struct SensorRbConfig {
+    char    rocrailId[16] = "";   // Rocrail block/sensor ID (e.g. "bk1")
+    uint8_t muxCh         = 0;   // MUX channel of the absorption sensor
+};
+
 // ── Rocrail turnout config entry ─────────────────────────────────────
 struct TurnoutConfig {
     char     id[16]   = "";      // Rocrail object ID (e.g. "sw1")
@@ -29,13 +35,16 @@ struct BoardConfig {
     char mqttPass[32]     = "";
     ChannelRole pinMap[MUX_CHANNELS] = {};   // all UNUSED by default
 
-    // Rocrail-mapped objects (up to 8 signals and 8 turnouts per board)
-    static constexpr uint8_t MAX_SIGNALS  = 8;
-    static constexpr uint8_t MAX_TURNOUTS = 8;
-    SignalConfig  signals[MAX_SIGNALS];
-    TurnoutConfig turnouts[MAX_TURNOUTS];
-    uint8_t       numSignals  = 0;
-    uint8_t       numTurnouts = 0;
+    // Rocrail-mapped objects (up to 8 per type per board)
+    static constexpr uint8_t MAX_SIGNALS    = 8;
+    static constexpr uint8_t MAX_TURNOUTS   = 8;
+    static constexpr uint8_t MAX_SENSORS_RB = 8;
+    SignalConfig   signals[MAX_SIGNALS];
+    TurnoutConfig  turnouts[MAX_TURNOUTS];
+    SensorRbConfig sensorsRb[MAX_SENSORS_RB];
+    uint8_t        numSignals    = 0;
+    uint8_t        numTurnouts   = 0;
+    uint8_t        numSensorsRb  = 0;
 };
 
 class ConfigManager {
@@ -100,8 +109,18 @@ public:
             t.pulse = sw["pulse"] | 300;
         }
 
-        Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u\n",
-                      cfg.hostname, cfg.mqttBroker, cfg.numSignals, cfg.numTurnouts);
+        // ── Sensors Rocrail ────────────────────────────────────────
+        cfg.numSensorsRb = 0;
+        for (JsonObject rb : doc["sensors_rb"].as<JsonArray>()) {
+            if (cfg.numSensorsRb >= BoardConfig::MAX_SENSORS_RB) break;
+            SensorRbConfig& sr = cfg.sensorsRb[cfg.numSensorsRb++];
+            strlcpy(sr.rocrailId, rb["rocrail_id"] | "", sizeof(sr.rocrailId));
+            sr.muxCh = rb["mux_ch"] | 0;
+        }
+
+        Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u\n",
+                      cfg.hostname, cfg.mqttBroker,
+                      cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb);
         return true;
     }
 
@@ -135,6 +154,13 @@ public:
             o["chS"]   = cfg.turnouts[i].chS;
             o["chD"]   = cfg.turnouts[i].chD;
             o["pulse"] = cfg.turnouts[i].pulse;
+        }
+
+        JsonArray rbArr = doc["sensors_rb"].to<JsonArray>();
+        for (uint8_t i = 0; i < cfg.numSensorsRb; i++) {
+            JsonObject o = rbArr.add<JsonObject>();
+            o["rocrail_id"] = cfg.sensorsRb[i].rocrailId;
+            o["mux_ch"]     = cfg.sensorsRb[i].muxCh;
         }
 
         File f = LittleFS.open(CONFIG_PATH, "w");

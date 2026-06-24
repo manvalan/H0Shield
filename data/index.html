@@ -136,6 +136,72 @@
   <ul id="topic-list" style="margin-top:10px;padding-left:16px;font-size:.8rem;color:#a0b0c8;line-height:2"></ul>
 </div>
 
+<!-- Live Dashboard -->
+<div class="card" id="dashboard-card">
+  <h2>DASHBOARD LIVE <span id="mqtt-badge" class="badge badge-off">MQTT offline</span></h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:.8rem;margin-bottom:12px">
+    <div><span style="color:var(--muted)">Uptime:</span> <span id="d-uptime">—</span></div>
+    <div><span style="color:var(--muted)">IP:</span> <span id="d-ip">—</span></div>
+    <div><span style="color:var(--muted)">RSSI:</span> <span id="d-rssi">—</span> dBm</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+    <div>
+      <div style="color:var(--muted);font-size:.75rem;margin-bottom:6px">SENSORI</div>
+      <div id="d-sensors" style="font-size:.8rem;line-height:1.8"></div>
+    </div>
+    <div>
+      <div style="color:var(--muted);font-size:.75rem;margin-bottom:6px">SEGNALI</div>
+      <div id="d-signals" style="font-size:.8rem;line-height:1.8"></div>
+    </div>
+    <div>
+      <div style="color:var(--muted);font-size:.75rem;margin-bottom:6px">SCAMBI</div>
+      <div id="d-turnouts" style="font-size:.8rem;line-height:1.8"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Manual test panel -->
+<div class="card">
+  <h2>TEST MANUALE</h2>
+  <div class="grid2" style="gap:8px">
+    <div>
+      <label>Segnale ID</label>
+      <input id="test-sg-id" type="text" placeholder="sg1" style="width:100%">
+    </div>
+    <div>
+      <label>Aspetto</label>
+      <select id="test-sg-asp" style="width:100%">
+        <option value="red">RED</option>
+        <option value="green">GREEN</option>
+        <option value="yellow">YELLOW</option>
+        <option value="go">GO (shunt)</option>
+        <option value="stop">STOP (shunt)</option>
+        <option value="oblique">OBLIQUE (shunt)</option>
+      </select>
+    </div>
+  </div>
+  <button class="btn" style="margin-top:8px;width:auto;padding:8px 20px;font-size:.85rem"
+          onclick="testSignal()">Invia aspetto</button>
+
+  <hr style="border-color:#1a2a4a;margin:16px 0">
+
+  <div class="grid2" style="gap:8px">
+    <div>
+      <label>Scambio ID</label>
+      <input id="test-sw-id" type="text" placeholder="sw1" style="width:100%">
+    </div>
+    <div>
+      <label>Comando</label>
+      <select id="test-sw-cmd" style="width:100%">
+        <option value="straight">DRITTO</option>
+        <option value="turnout">DEVIATA</option>
+      </select>
+    </div>
+  </div>
+  <button class="btn" style="margin-top:8px;width:auto;padding:8px 20px;font-size:.85rem"
+          onclick="testTurnout()">Invia comando</button>
+</div>
+
 <button class="btn" id="save-btn" onclick="saveConfig()">Salva e riavvia</button>
 <div id="toast"></div>
 
@@ -219,6 +285,85 @@ function updateTopics(name) {
     li.textContent = t;
     list.appendChild(li);
   });
+}
+
+// ── Live dashboard ────────────────────────────────────────────────────
+let dashInterval = null;
+
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) return;
+    const s = await r.json();
+
+    const mqtt = s.mqtt;
+    const badge = document.getElementById('mqtt-badge');
+    badge.textContent = mqtt ? 'MQTT online' : 'MQTT offline';
+    badge.className = 'badge ' + (mqtt ? 'badge-on' : 'badge-off');
+
+    document.getElementById('d-uptime').textContent = formatUptime(s.uptime_s);
+    document.getElementById('d-ip').textContent     = s.ip || '—';
+    document.getElementById('d-rssi').textContent   = s.rssi || '—';
+
+    const sens = document.getElementById('d-sensors');
+    sens.innerHTML = s.sensors
+      ? Object.entries(s.sensors).map(([ch, occ]) =>
+          `<div>ch${ch}: <span class="badge ${occ ? 'badge-on' : 'badge-off'}">${occ ? 'OCCUPATO' : 'libero'}</span></div>`
+        ).join('') || '<span style="color:var(--muted)">nessuno</span>'
+      : '<span style="color:var(--muted)">—</span>';
+
+    const sigs = document.getElementById('d-signals');
+    sigs.innerHTML = s.signals
+      ? Object.entries(s.signals).map(([id, asp]) =>
+          `<div>${id}: <strong style="color:#ef9a9a">${asp}</strong></div>`
+        ).join('') || '<span style="color:var(--muted)">nessuno</span>'
+      : '<span style="color:var(--muted)">—</span>';
+
+    const tws = document.getElementById('d-turnouts');
+    tws.innerHTML = s.turnouts
+      ? Object.entries(s.turnouts).map(([id, st]) =>
+          `<div>${id}: <strong style="color:#80cbc4">${st}</strong></div>`
+        ).join('') || '<span style="color:var(--muted)">nessuno</span>'
+      : '<span style="color:var(--muted)">—</span>';
+
+  } catch(e) { /* device unreachable during reboot */ }
+}
+
+function formatUptime(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${h}h ${m}m ${sec}s`;
+}
+
+function startDashboard() {
+  pollStatus();
+  dashInterval = setInterval(pollStatus, 2000);
+}
+
+// ── Manual test ───────────────────────────────────────────────────────
+async function testSignal() {
+  const id  = document.getElementById('test-sg-id').value.trim();
+  const cmd = document.getElementById('test-sg-asp').value;
+  if (!id) { toast('Inserisci un ID segnale'); return; }
+  await _postTest({ type: 'signal', id, cmd });
+  toast(`Segnale ${id} → ${cmd}`);
+}
+
+async function testTurnout() {
+  const id  = document.getElementById('test-sw-id').value.trim();
+  const cmd = document.getElementById('test-sw-cmd').value;
+  if (!id) { toast('Inserisci un ID scambio'); return; }
+  await _postTest({ type: 'turnout', id, cmd });
+  toast(`Scambio ${id} → ${cmd}`);
+}
+
+async function _postTest(body) {
+  try {
+    await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch(e) {}
 }
 
 // ── Signals table ─────────────────────────────────────────────────────
@@ -311,6 +456,10 @@ async function saveConfig() {
     if (r.ok) {
       toast('Salvato! Riavvio in corso…');
       setTimeout(() => location.reload(), 6000);
+    } else if (r.status === 409) {
+      const err = await r.json();
+      toast('⚠ Conflitto canali: ' + (err.detail || ''));
+      btn.disabled = false;
     } else {
       toast('Errore: ' + r.statusText);
       btn.disabled = false;
@@ -331,6 +480,7 @@ function toast(msg) {
 // Update subtitle live as user types hostname
 document.addEventListener('DOMContentLoaded', () => {
   loadConfig();
+  startDashboard();
   document.getElementById('hostname').addEventListener('input', e => {
     document.getElementById('subtitle').textContent =
       'http://' + (e.target.value || 'shieldh0') + '.local/';
