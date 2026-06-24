@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShieldH0 Config</title>
+<style>
+  :root {
+    --bg: #1a1a2e; --surface: #16213e; --card: #0f3460;
+    --accent: #e94560; --text: #eaeaea; --muted: #8892a4;
+    --green: #4caf50; --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif;
+         min-height: 100vh; padding: 24px 16px; }
+  h1   { text-align:center; color: var(--accent); margin-bottom: 4px; font-size: 1.6rem; }
+  .sub { text-align:center; color: var(--muted); font-size:.85rem; margin-bottom:24px; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 20px;
+          margin-bottom: 20px; }
+  h2   { color: var(--accent); font-size: 1rem; margin-bottom: 16px; letter-spacing:.5px; }
+  label { display:block; color: var(--muted); font-size:.8rem; margin-bottom:4px; }
+  input, select {
+    width:100%; padding:8px 12px; border-radius:6px; border:1px solid #2a3a5c;
+    background:#0d1b2a; color: var(--text); font-size:.9rem;
+  }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  table  { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th     { background:#0d1b2a; color:var(--muted); padding:8px; text-align:left;
+           font-weight:500; border-bottom:1px solid #2a3a5c; }
+  td     { padding:8px 6px; border-bottom:1px solid #1a2a4a; vertical-align:middle; }
+  td.ch  { color:var(--muted); font-family:monospace; width:50px; }
+  select.role { width:180px; }
+  .btn   { display:block; width:100%; padding:12px; border:none; border-radius:var(--radius);
+           background:var(--accent); color:#fff; font-size:1rem; cursor:pointer;
+           transition:opacity .2s; }
+  .btn:hover { opacity:.85; }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+           background:#222; color:#fff; padding:10px 24px; border-radius:20px;
+           font-size:.85rem; opacity:0; transition:opacity .3s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.75rem; }
+  .badge-on  { background:#1b5e20; color:#a5d6a7; }
+  .badge-off { background:#37474f; color:#90a4ae; }
+  @media(max-width:500px) { .grid2 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>⚙ ShieldH0</h1>
+<p class="sub" id="subtitle">Caricamento configurazione…</p>
+
+<!-- Network / MQTT card -->
+<div class="card">
+  <h2>RETE &amp; MQTT</h2>
+  <div class="grid2">
+    <div>
+      <label>Nome scheda (hostname mDNS)</label>
+      <input id="hostname" type="text" placeholder="ShieldH0">
+    </div>
+    <div>
+      <label>MQTT Broker IP</label>
+      <input id="broker" type="text" placeholder="192.168.1.x">
+    </div>
+    <div>
+      <label>Porta MQTT</label>
+      <input id="port" type="number" placeholder="1883">
+    </div>
+    <div>
+      <label>Utente MQTT</label>
+      <input id="user" type="text" placeholder="(opzionale)">
+    </div>
+    <div>
+      <label>Password MQTT</label>
+      <input id="pass" type="password" placeholder="(opzionale)">
+    </div>
+  </div>
+</div>
+
+<!-- MUX channel map card -->
+<div class="card">
+  <h2>MAPPING CANALI MUX (CD74HC4067)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>CH</th>
+        <th>Funzione</th>
+        <th>Stato</th>
+      </tr>
+    </thead>
+    <tbody id="mux-table"></tbody>
+  </table>
+</div>
+
+<!-- MQTT live topics info -->
+<div class="card">
+  <h2>TOPIC MQTT</h2>
+  <small style="color:var(--muted)">
+    Verranno generati automaticamente in base al nome scheda:
+  </small>
+  <ul id="topic-list" style="margin-top:10px;padding-left:16px;font-size:.8rem;color:#a0b0c8;line-height:2"></ul>
+</div>
+
+<button class="btn" id="save-btn" onclick="saveConfig()">Salva e riavvia</button>
+<div id="toast"></div>
+
+<script>
+const ROLES = [
+  { v: 0, label: 'Non usato',    color: '#37474f' },
+  { v: 1, label: 'Sensore',      color: '#1565c0' },
+  { v: 2, label: 'Relè',         color: '#6a1b9a' },
+  { v: 3, label: 'Semaforo RGB', color: '#e65100' },
+  { v: 4, label: 'Marmotta',     color: '#2e7d32' },
+  { v: 5, label: 'RGB Seriale',  color: '#880e4f' },
+];
+
+let currentCfg = null;
+
+async function loadConfig() {
+  try {
+    const r = await fetch('/api/cfg');
+    currentCfg = await r.json();
+    populate(currentCfg);
+  } catch(e) {
+    toast('Errore caricamento: ' + e.message);
+  }
+}
+
+function populate(cfg) {
+  document.getElementById('hostname').value = cfg.hostname || '';
+  document.getElementById('broker').value   = cfg.mqtt_broker || '';
+  document.getElementById('port').value     = cfg.mqtt_port || 1883;
+  document.getElementById('user').value     = cfg.mqtt_user || '';
+  document.getElementById('pass').value     = '';
+
+  document.getElementById('subtitle').textContent =
+    'http://' + (cfg.hostname || 'shieldh0') + '.local/';
+
+  updateTopics(cfg.hostname || 'ShieldH0');
+  buildMuxTable(cfg.pin_map || new Array(16).fill(0));
+}
+
+function buildMuxTable(pinMap) {
+  const tbody = document.getElementById('mux-table');
+  tbody.innerHTML = '';
+  for (let i = 0; i < 16; i++) {
+    const role = pinMap[i] || 0;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="ch">${String(i).padStart(2,'0')}</td>
+      <td>
+        <select class="role" data-ch="${i}">
+          ${ROLES.map(r =>
+            `<option value="${r.v}" ${r.v===role?'selected':''} style="background:${r.color}">${r.label}</option>`
+          ).join('')}
+        </select>
+      </td>
+      <td><span class="badge badge-off" id="st-${i}">—</span></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function updateTopics(name) {
+  const list = document.getElementById('topic-list');
+  ['sensors/state','command/set','status/heartbeat'].forEach(t => {
+    const li = document.createElement('li');
+    li.textContent = `railway/${name}/${t}`;
+    list.appendChild(li);
+  });
+}
+
+async function saveConfig() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+
+  const pinMap = Array.from(document.querySelectorAll('select.role'))
+    .map(s => parseInt(s.value));
+
+  const body = {
+    hostname:    document.getElementById('hostname').value.trim(),
+    mqtt_broker: document.getElementById('broker').value.trim(),
+    mqtt_port:   parseInt(document.getElementById('port').value) || 1883,
+    mqtt_user:   document.getElementById('user').value.trim(),
+    mqtt_pass:   document.getElementById('pass').value,
+    pin_map:     pinMap,
+  };
+
+  try {
+    const r = await fetch('/api/cfg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      toast('Salvato! Riavvio in corso…');
+      setTimeout(() => location.reload(), 6000);
+    } else {
+      toast('Errore: ' + r.statusText);
+      btn.disabled = false;
+    }
+  } catch(e) {
+    toast('Errore rete: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// Update subtitle live as user types hostname
+document.addEventListener('DOMContentLoaded', () => {
+  loadConfig();
+  document.getElementById('hostname').addEventListener('input', e => {
+    document.getElementById('subtitle').textContent =
+      'http://' + (e.target.value || 'shieldh0') + '.local/';
+    document.getElementById('topic-list').innerHTML = '';
+    updateTopics(e.target.value || 'ShieldH0');
+  });
+});
+</script>
+</body>
+</html>
