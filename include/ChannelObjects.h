@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <FastLED.h>
 #include "Config.h"
 #include "MuxDriver.h"
 
@@ -78,6 +79,61 @@ private:
         pinMode(MUX_PIN_SIG, OUTPUT);
         mux.writeDigital(val);
     }
+};
+
+// ── WS2812 serial RGB strip (FastLED, direct GPIO – NOT via MUX) ────
+//
+// The MUX channel index is used only as a config tag.
+// The actual DATA pin is looked up in WS2812_GPIO_MAP (Config.h).
+// Each strip gets its own CRGB array allocated on the heap.
+class SerialRGBChannel : public IChannel {
+public:
+    CRGB*   leds    = nullptr;
+    uint8_t numLeds = WS2812_MAX_LEDS;
+    uint8_t gpio    = 0;
+
+    explicit SerialRGBChannel(uint8_t muxCh) : IChannel(muxCh) {
+        // Resolve GPIO from map
+        for (uint8_t i = 0; i < WS2812_MAP_SIZE; i++) {
+            if (WS2812_GPIO_MAP[i][0] == muxCh) {
+                gpio = WS2812_GPIO_MAP[i][1];
+                break;
+            }
+        }
+        leds = new CRGB[numLeds];
+    }
+
+    ~SerialRGBChannel() override { delete[] leds; }
+
+    // FastLED requires a compile-time pin; we use addLeds<> with a runtime
+    // workaround via the dynamic controller approach.
+    // Call begin() once after construction.
+    void begin() {
+        // Register the strip. FastLED doesn't support full runtime pin selection,
+        // so we add the controller manually. This covers the four defined GPIOs.
+        switch (gpio) {
+            case  4: FastLED.addLeds<WS2812B, 4,  GRB>(leds, numLeds); break;
+            case  5: FastLED.addLeds<WS2812B, 5,  GRB>(leds, numLeds); break;
+            case 18: FastLED.addLeds<WS2812B, 18, GRB>(leds, numLeds); break;
+            case 19: FastLED.addLeds<WS2812B, 19, GRB>(leds, numLeds); break;
+            default:
+                Serial.printf("[RGB] No FastLED GPIO mapping for GPIO %u\n", gpio);
+        }
+        fill_solid(leds, numLeds, CRGB::Black);
+        FastLED.show();
+    }
+
+    void setAll(CRGB color) {
+        fill_solid(leds, numLeds, color);
+        FastLED.show();
+    }
+
+    void setPixel(uint8_t idx, CRGB color) {
+        if (idx < numLeds) leds[idx] = color;
+        FastLED.show();
+    }
+
+    void update(MuxDriver&) override {}   // driven by MQTT commands, not polled
 };
 
 // ── Marmotta (audio trigger – single pulse) ──────────────────────────

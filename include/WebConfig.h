@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
+#include <LittleFS.h>
 #include "ConfigManager.h"
 
 /**

@@ -11,47 +11,57 @@
 #include "ChannelObjects.h"
 #include "MQTTManager.h"
 #include "WebConfig.h"
+#include "OTAManager.h"
+#include "ToFManager.h"
 
 // ── Globals ──────────────────────────────────────────────────────────
 ConfigManager cfgMgr;
 MuxDriver     mux;
 MQTTManager   mqtt;
 WebConfig     webConfig;
+OTAManager    ota;
 VL6180X       tof;
+ToFManager    tofMgr;
 
-// Channel object pools (populated from pin_map during setup)
+// Channel pools
 std::vector<std::unique_ptr<IChannel>> channels;
+std::map<uint8_t, RelayChannel*>       relays;
+std::map<uint8_t, SensorChannel*>      sensors;
+std::map<uint8_t, SerialRGBChannel*>   strips;   // WS2812 strips
 
-// Relay lookup (quick access for MQTT commands)
-std::map<uint8_t, RelayChannel*> relays;
-std::map<uint8_t, SensorChannel*> sensors;
-
-// ── Scan state machine ───────────────────────────────────────────────
-static unsigned long lastScanMs = 0;
+// Scan timing
+static unsigned long lastScanMs   = 0;
+// Track previous sensor states to publish only on change
+static bool prevSensorState[MUX_CHANNELS] = {};
 
 // ── Forward declarations ─────────────────────────────────────────────
 void buildChannelObjects();
 void onMqttCommand(const String& topic, const String& payload);
 void publishSensorStates();
+void checkResetButton();
 
 // ─────────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
     Serial.println("\n\n==== ShieldH0 booting ====");
 
+    // ── Reset button ──────────────────────────────────────────────────
+    pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
+
     // ── Phase 1: Config + Filesystem ─────────────────────────────────
-    cfgMgr.begin();   // mounts LittleFS, loads config.json
+    if (!cfgMgr.begin()) {
+        Serial.println("[BOOT] Config load failed – using defaults");
+    }
 
     // ── Phase 1: WiFi portal ──────────────────────────────────────────
     WiFiManager wm;
     wm.setTimeout(WIFI_PORTAL_TIMEOUT);
 
-    // Expose MQTT fields in the captive portal
-    WiFiManagerParameter p_host("hostname",    "Board name",       cfgMgr.cfg.hostname,   32);
-    WiFiManagerParameter p_broker("broker",    "MQTT Broker IP",   cfgMgr.cfg.mqttBroker, 64);
-    WiFiManagerParameter p_port("port",        "MQTT Port",        "1883",                 6);
-    WiFiManagerParameter p_user("mqtt_user",   "MQTT User",        cfgMgr.cfg.mqttUser,   32);
-    WiFiManagerParameter p_pass("mqtt_pass",   "MQTT Password",    cfgMgr.cfg.mqttPass,   32);
+    WiFiManagerParameter p_host  ("hostname",  "Board name",     cfgMgr.cfg.hostname,   32);
+    WiFiManagerParameter p_broker("broker",    "MQTT Broker IP", cfgMgr.cfg.mqttBroker, 64);
+    WiFiManagerParameter p_port  ("port",      "MQTT Port",      "1883",                  6);
+    WiFiManagerParameter p_user  ("mqtt_user", "MQTT User",      cfgMgr.cfg.mqttUser,   32);
+    WiFiManagerParameter p_pass  ("mqtt_pass", "MQTT Password",  cfgMgr.cfg.mqttPass,   32);
 
     wm.addParameter(&p_host);
     wm.addParameter(&p_broker);
@@ -59,7 +69,6 @@ void setup() {
     wm.addParameter(&p_user);
     wm.addParameter(&p_pass);
 
-    // Called after the portal saves credentials
     wm.setSaveParamsCallback([&]() {
         strlcpy(cfgMgr.cfg.hostname,   p_host.getValue(),   sizeof(cfgMgr.cfg.hostname));
         strlcpy(cfgMgr.cfg.mqttBroker, p_broker.getValue(), sizeof(cfgMgr.cfg.mqttBroker));
@@ -68,6 +77,12 @@ void setup() {
         strlcpy(cfgMgr.cfg.mqttPass,   p_pass.getValue(),   sizeof(cfgMgr.cfg.mqttPass));
         cfgMgr.save();
     });
+
+    // Check if reset button held at boot → wipe credentials
+    if (digitalRead(WIFI_RESET_PIN) == LOW) {
+        Serial.println("[WIFI] Reset button held at boot – clearing credentials");
+        wm.resetSettings();
+    }
 
     String apName = String("ShieldH0-") + cfgMgr.cfg.hostname;
     if (!wm.autoConnect(apName.c_str())) {
@@ -79,8 +94,11 @@ void setup() {
     // ── mDNS ──────────────────────────────────────────────────────────
     if (MDNS.begin(cfgMgr.cfg.hostname)) {
         MDNS.addService("http", "tcp", 80);
-        Serial.printf("[mDNS] Hostname: http://%s.local/\n", cfgMgr.cfg.hostname);
+        Serial.printf("[mDNS] http://%s.local/\n", cfgMgr.cfg.hostname);
     }
+
+    // ── OTA ───────────────────────────────────────────────────────────
+    ota.begin(cfgMgr);
 
     // ── Phase 2: Hardware init ────────────────────────────────────────
     mux.begin();
@@ -91,11 +109,14 @@ void setup() {
     tof.setTimeout(500);
     Serial.println("[HW] VL6180X ready");
 
-    // ── Phase 3: Build channel objects from pin_map ───────────────────
+    // ── Phase 3: Channel objects ──────────────────────────────────────
     buildChannelObjects();
 
     // ── Phase 4: MQTT ────────────────────────────────────────────────
     mqtt.begin(cfgMgr, onMqttCommand);
+
+    // ToF manager (links tof sensor → mqtt)
+    tofMgr.begin(tof, mqtt, cfgMgr);
 
     // ── Phase 5: Web config UI ────────────────────────────────────────
     webConfig.begin(cfgMgr);
@@ -105,13 +126,14 @@ void setup() {
 
 // ─────────────────────────────────────────────────────────────────────
 void loop() {
+    checkResetButton();
+    ota.loop();
     webConfig.loop();
     mqtt.loop();
+    tofMgr.loop();
 
-    // MUX polling: full channel scan every SENSOR_POLL_MS
     if (millis() - lastScanMs >= SENSOR_POLL_MS) {
         lastScanMs = millis();
-
         for (auto& ch : channels) {
             ch->update(mux);
         }
@@ -119,14 +141,16 @@ void loop() {
     }
 }
 
-// ── Phase 3: populate channel objects ────────────────────────────────
+// ── Phase 3: populate channel objects from config ────────────────────
 void buildChannelObjects() {
     channels.clear();
     relays.clear();
     sensors.clear();
+    strips.clear();
 
     for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
         switch (cfgMgr.cfg.pinMap[i]) {
+
             case ChannelRole::SENSOR: {
                 auto* s = new SensorChannel(i);
                 sensors[i] = s;
@@ -134,6 +158,7 @@ void buildChannelObjects() {
                 Serial.printf("[MAP] Ch%02u → Sensor\n", i);
                 break;
             }
+
             case ChannelRole::RELAY: {
                 auto* r = new RelayChannel(i);
                 relays[i] = r;
@@ -141,78 +166,145 @@ void buildChannelObjects() {
                 Serial.printf("[MAP] Ch%02u → Relay\n", i);
                 break;
             }
+
             case ChannelRole::SIGNAL_RGB: {
                 auto* sig = new SignalRGBChannel(i);
                 channels.emplace_back(sig);
-                Serial.printf("[MAP] Ch%02u → Signal RGB (occupies %u-%u)\n", i, i, i+2);
-                i += 2;  // skip the next 2 channels consumed by R,G,B
+                Serial.printf("[MAP] Ch%02u → Signal RGB (ch %u-%u)\n", i, i, i + 2);
+                i += 2;  // consumes three consecutive MUX channels
                 break;
             }
+
             case ChannelRole::MARMOTTA: {
                 auto* m = new MarmottaChannel(i);
                 channels.emplace_back(m);
                 Serial.printf("[MAP] Ch%02u → Marmotta\n", i);
                 break;
             }
+
+            case ChannelRole::SERIAL_RGB: {
+                auto* strip = new SerialRGBChannel(i);
+                strip->begin();
+                strips[i] = strip;
+                channels.emplace_back(strip);
+                Serial.printf("[MAP] Ch%02u → WS2812 strip (GPIO %u, %u LEDs)\n",
+                              i, strip->gpio, strip->numLeds);
+                break;
+            }
+
             default:
                 break;
         }
     }
-    Serial.printf("[MAP] %u channel objects created\n", channels.size());
+    Serial.printf("[MAP] Total channel objects: %u\n", channels.size());
 }
 
-// ── Phase 4: publish sensor states ───────────────────────────────────
+// ── Publish sensor states (only changed channels) ────────────────────
 void publishSensorStates() {
     if (sensors.empty()) return;
 
+    bool anyChange = false;
     JsonDocument doc;
     JsonObject states = doc.to<JsonObject>();
-    bool anyChange = false;
 
     for (auto& [ch, s] : sensors) {
-        static bool prevState[MUX_CHANNELS] = {};
-        if (s->occupied != prevState[ch]) {
-            prevState[ch] = s->occupied;
+        states[String(ch)] = s->occupied;
+        if (s->occupied != prevSensorState[ch]) {
+            prevSensorState[ch] = s->occupied;
             anyChange = true;
         }
-        states[String(ch)] = s->occupied;
     }
 
     if (anyChange) {
         String payload;
         serializeJson(doc, payload);
-        mqtt.publish("sensors/state", payload);
+        mqtt.publish("sensors/state", payload, true);  // retained
     }
 }
 
-// ── Phase 4: handle incoming MQTT commands ───────────────────────────
+// ── MQTT command handler ─────────────────────────────────────────────
+// Expected payloads:
+//   Relay:  {"channel":N, "action":"on"|"off"|"toggle"}
+//   Strip:  {"channel":N, "action":"color", "r":255,"g":0,"b":0}
+//           {"channel":N, "action":"off"}
 void onMqttCommand(const String& topic, const String& payload) {
     Serial.printf("[MQTT] ← %s : %s\n", topic.c_str(), payload.c_str());
 
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
-        Serial.println("[MQTT] Bad JSON in command");
+        Serial.println("[MQTT] Bad JSON");
         return;
     }
 
-    // Expected payload: { "channel": 3, "action": "on" | "off" | "toggle" }
     if (!doc["channel"].is<uint8_t>()) return;
     uint8_t ch     = doc["channel"];
     String  action = doc["action"] | "toggle";
 
-    auto it = relays.find(ch);
-    if (it == relays.end()) {
-        Serial.printf("[MQTT] Ch%u is not a relay\n", ch);
+    // ── Relay command ─────────────────────────────────────────────────
+    auto relayIt = relays.find(ch);
+    if (relayIt != relays.end()) {
+        RelayChannel* r = relayIt->second;
+        if      (action == "on")     r->setState(true,   mux);
+        else if (action == "off")    r->setState(false,  mux);
+        else if (action == "toggle") r->setState(!r->state, mux);
+
+        String ack = "{\"channel\":" + String(ch) +
+                     ",\"state\":"   + (r->state ? "true" : "false") + "}";
+        mqtt.publish("sensors/state", ack);
         return;
     }
 
-    RelayChannel* r = it->second;
-    if      (action == "on")     r->setState(true,  mux);
-    else if (action == "off")    r->setState(false, mux);
-    else if (action == "toggle") r->setState(!r->state, mux);
+    // ── WS2812 strip command ──────────────────────────────────────────
+    auto stripIt = strips.find(ch);
+    if (stripIt != strips.end()) {
+        SerialRGBChannel* s = stripIt->second;
+        if (action == "color") {
+            uint8_t r = doc["r"] | 0;
+            uint8_t g = doc["g"] | 0;
+            uint8_t b = doc["b"] | 0;
+            s->setAll(CRGB(r, g, b));
+        } else if (action == "off") {
+            s->setAll(CRGB::Black);
+        } else if (action == "pixel") {
+            uint8_t idx = doc["idx"] | 0;
+            uint8_t r   = doc["r"] | 0;
+            uint8_t g   = doc["g"] | 0;
+            uint8_t b   = doc["b"] | 0;
+            s->setPixel(idx, CRGB(r, g, b));
+        }
+        return;
+    }
 
-    // Echo state back
-    String ack = String("{\"channel\":") + ch +
-                 ",\"state\":" + (r->state ? "true" : "false") + "}";
-    mqtt.publish("sensors/state", ack);
+    // ── Marmotta trigger ──────────────────────────────────────────────
+    for (auto& chObj : channels) {
+        if (chObj->ch == ch) {
+            if (auto* m = dynamic_cast<MarmottaChannel*>(chObj.get())) {
+                uint32_t ms = doc["ms"] | 200;
+                m->trigger(mux, ms);
+            }
+        }
+    }
+}
+
+// ── Runtime WiFi reset (long-press during normal operation) ──────────
+void checkResetButton() {
+    static unsigned long pressStart = 0;
+    static bool          wasPressed = false;
+
+    bool pressed = (digitalRead(WIFI_RESET_PIN) == LOW);
+
+    if (pressed && !wasPressed) {
+        pressStart = millis();
+        wasPressed = true;
+    } else if (!pressed && wasPressed) {
+        wasPressed = false;
+    } else if (pressed && wasPressed) {
+        if (millis() - pressStart >= WIFI_RESET_HOLD_MS) {
+            Serial.println("[WIFI] Long press – resetting credentials");
+            WiFiManager wm;
+            wm.resetSettings();
+            delay(200);
+            ESP.restart();
+        }
+    }
 }

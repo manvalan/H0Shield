@@ -3,7 +3,6 @@
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include "ConfigManager.h"
-#include "ChannelObjects.h"
 
 /**
  * Thin wrapper around PubSubClient.

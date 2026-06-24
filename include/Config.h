@@ -14,6 +14,11 @@
 #define I2C_SCL      22
 #define VL6180X_ADDR 0x29
 
+// ── WiFiManager reset button ─────────────────────────────────────────
+// Hold LOW for WIFI_RESET_HOLD_MS to wipe saved credentials and reopen portal
+#define WIFI_RESET_PIN      0      // BOOT button on most D32R1 boards
+#define WIFI_RESET_HOLD_MS  3000
+
 // ── Timing ──────────────────────────────────────────────────────────
 #define SENSOR_POLL_MS      20    // MUX full scan period
 #define MQTT_HEARTBEAT_MS   5000
@@ -26,6 +31,19 @@
 
 // ── Filesystem paths ────────────────────────────────────────────────
 #define CONFIG_PATH  "/config.json"
+
+// ── WS2812 strips: MUX channel → physical GPIO ──────────────────────
+// Add entries here as you wire more strips.
+// Key = MUX config channel index, Value = ESP32 GPIO for the DATA line.
+static const uint8_t WS2812_GPIO_MAP[][2] = {
+    //  MUX ch,  GPIO
+    {       8,    4 },
+    {       9,    5 },
+    {      10,   18 },
+    {      11,   19 },
+};
+#define WS2812_MAP_SIZE (sizeof(WS2812_GPIO_MAP) / sizeof(WS2812_GPIO_MAP[0]))
+#define WS2812_MAX_LEDS  30   // per-strip LED count (adjust per layout)
 
 // ── Channel roles ───────────────────────────────────────────────────
 enum class ChannelRole : uint8_t {
