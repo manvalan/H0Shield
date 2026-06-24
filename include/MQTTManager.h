@@ -11,11 +11,14 @@
  */
 class MQTTManager {
 public:
-    using CommandHandler = std::function<void(const String& topic, const String& payload)>;
+    using CommandHandler    = std::function<void(const String& topic, const String& payload)>;
+    using OnConnectHandler  = std::function<void()>;   // called each time MQTT connects
 
-    void begin(ConfigManager& cfg, CommandHandler handler) {
-        _cfg     = &cfg;
-        _handler = handler;
+    void begin(ConfigManager& cfg, CommandHandler handler,
+               OnConnectHandler onConnect = nullptr) {
+        _cfg       = &cfg;
+        _handler   = handler;
+        _onConnect = onConnect;
 
         _client.setClient(_wifiClient);
         _client.setServer(cfg.cfg.mqttBroker, cfg.cfg.mqttPort);
@@ -36,9 +39,20 @@ public:
         }
     }
 
+    // Publish on a board-namespaced topic: railway/<name>/<suffix>
     bool publish(const char* suffix, const String& payload, bool retain = false) {
         return _client.publish(_cfg->topic(suffix).c_str(),
                                payload.c_str(), retain);
+    }
+
+    // Publish on any arbitrary topic (used for Rocrail feedback)
+    bool publishRaw(const char* topic, const String& payload, bool retain = false) {
+        return _client.publish(topic, payload.c_str(), retain);
+    }
+
+    // Subscribe to an arbitrary topic (used for Rocrail command topics)
+    bool subscribe(const char* topic) {
+        return _client.subscribe(topic);
     }
 
     bool connected() const { return _client.connected(); }
@@ -47,9 +61,10 @@ private:
     WiFiClient     _wifiClient;
     PubSubClient   _client;
     ConfigManager* _cfg           = nullptr;
-    CommandHandler _handler;
-    unsigned long  _lastHeartbeat = 0;
-    uint8_t        _retries       = 0;
+    CommandHandler   _handler;
+    OnConnectHandler _onConnect;
+    unsigned long    _lastHeartbeat = 0;
+    uint8_t          _retries       = 0;
 
     void _reconnect() {
         if (_retries > 5) {
@@ -77,6 +92,7 @@ private:
             _client.subscribe(_cfg->topic("command/set").c_str());
             Serial.printf("[MQTT] Subscribed to %s\n",
                           _cfg->topic("command/set").c_str());
+            if (_onConnect) _onConnect();
         } else {
             _retries++;
             Serial.printf("[MQTT] Failed (rc=%d) – retry %u/5\n",

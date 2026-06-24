@@ -29,6 +29,23 @@
 // railway/{name}/command/set
 // railway/{name}/status/heartbeat
 
+// ── Rocrail MQTT topics (standard, fixed – NOT per-board) ────────────
+//   Signals:  subscribe command, publish feedback
+#define ROCRAIL_TOPIC_SG_CMD      "rocrail/service/info/sg"
+#define ROCRAIL_TOPIC_SG_FB       "rocrail/service/client"
+#define ROCRAIL_TOPIC_SG_LWT      "railway/status/segnali"
+//   Turnouts: subscribe command, publish feedback
+#define ROCRAIL_TOPIC_SW_CMD      "rocrail/service/command"
+#define ROCRAIL_TOPIC_SW_FB       "rocrail/service/info"
+#define ROCRAIL_TOPIC_SW_LWT      "railway/status/scambi"
+
+// ── Signal aspect mapping ─────────────────────────────────────────────
+enum class SignalType : uint8_t { MAIN = 0, SHUNT = 1 };
+enum class SignalAspect : uint8_t {
+    RED = 0, GREEN = 1, YELLOW = 2,           // TYPE_MAIN
+    STOP = 3, GO = 4, OBLIQUE = 5             // TYPE_SHUNT
+};
+
 // ── Filesystem paths ────────────────────────────────────────────────
 #define CONFIG_PATH  "/config.json"
 

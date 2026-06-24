@@ -13,6 +13,8 @@
 #include "WebConfig.h"
 #include "OTAManager.h"
 #include "ToFManager.h"
+#include "TurnoutChannel.h"
+#include "RocrailProtocol.h"
 
 // ── Globals ──────────────────────────────────────────────────────────
 ConfigManager cfgMgr;
@@ -27,7 +29,11 @@ ToFManager    tofMgr;
 std::vector<std::unique_ptr<IChannel>> channels;
 std::map<uint8_t, RelayChannel*>       relays;
 std::map<uint8_t, SensorChannel*>      sensors;
-std::map<uint8_t, SerialRGBChannel*>   strips;   // WS2812 strips
+std::map<uint8_t, SerialRGBChannel*>   strips;
+
+// Rocrail objects (signals + turnouts)
+RocrailProtocol rocrail;
+std::vector<std::unique_ptr<TurnoutChannel>> turnouts;
 
 // Scan timing
 static unsigned long lastScanMs   = 0;
@@ -36,6 +42,7 @@ static bool prevSensorState[MUX_CHANNELS] = {};
 
 // ── Forward declarations ─────────────────────────────────────────────
 void buildChannelObjects();
+void buildRocrailObjects();
 void onMqttCommand(const String& topic, const String& payload);
 void publishSensorStates();
 void checkResetButton();
@@ -112,8 +119,17 @@ void setup() {
     // ── Phase 3: Channel objects ──────────────────────────────────────
     buildChannelObjects();
 
+    // ── Phase 3b: Rocrail signal/turnout objects ──────────────────────
+    buildRocrailObjects();
+
     // ── Phase 4: MQTT ────────────────────────────────────────────────
-    mqtt.begin(cfgMgr, onMqttCommand);
+    mqtt.begin(cfgMgr, onMqttCommand, [&]() {
+        // Subscribe to Rocrail topics every time MQTT (re)connects
+        mqtt.subscribe(ROCRAIL_TOPIC_SG_CMD);
+        mqtt.subscribe(ROCRAIL_TOPIC_SW_CMD);
+        Serial.printf("[MQTT] Subscribed to Rocrail topics\n");
+        rocrail.publishOnline(mqtt, cfgMgr.cfg.hostname);
+    });
 
     // ToF manager (links tof sensor → mqtt)
     tofMgr.begin(tof, mqtt, cfgMgr);
@@ -139,6 +155,59 @@ void loop() {
         }
         publishSensorStates();
     }
+
+    // Turnout pulse watchdog (cut coil power after pulseDurationMs)
+    rocrail.update(mux);
+}
+
+// ── Phase 3b: build Rocrail signal and turnout objects ───────────────
+void buildRocrailObjects() {
+    turnouts.clear();
+
+    // Signals: each uses a SignalRGBChannel already in the channels pool
+    // (they must have been mapped as SIGNAL_RGB in the pin_map).
+    // We look them up by chR channel index.
+    for (uint8_t i = 0; i < cfgMgr.cfg.numSignals; i++) {
+        const SignalConfig& sc = cfgMgr.cfg.signals[i];
+        if (sc.id[0] == '\0') continue;
+
+        // Find the SignalRGBChannel that starts at chR
+        SignalRGBChannel* found = nullptr;
+        for (auto& ch : channels) {
+            if (ch->ch == sc.chR) {
+                found = dynamic_cast<SignalRGBChannel*>(ch.get());
+                break;
+            }
+        }
+        if (!found) {
+            // Auto-create if not in pin_map (allows Rocrail-only mode)
+            auto* sig = new SignalRGBChannel(sc.chR);
+            channels.emplace_back(sig);
+            found = sig;
+            Serial.printf("[ROCR] Auto-created SignalRGBChannel for %s (ch %u)\n",
+                          sc.id, sc.chR);
+        }
+
+        rocrail.registerSignal(sc.id, static_cast<SignalType>(sc.type), found);
+        Serial.printf("[ROCR] Signal '%s' type=%u → MUX ch %u/%u/%u\n",
+                      sc.id, sc.type, sc.chR, sc.chG, sc.chV);
+    }
+
+    // Turnouts
+    for (uint8_t i = 0; i < cfgMgr.cfg.numTurnouts; i++) {
+        const TurnoutConfig& tc = cfgMgr.cfg.turnouts[i];
+        if (tc.id[0] == '\0') continue;
+
+        auto* t = new TurnoutChannel(tc.id, tc.chS, tc.chD, tc.pulse);
+        t->begin(mux);
+        rocrail.registerTurnout(t);
+        turnouts.emplace_back(t);
+        Serial.printf("[ROCR] Turnout '%s' → MUX chS=%u chD=%u pulse=%ums\n",
+                      tc.id, tc.chS, tc.chD, tc.pulse);
+    }
+
+    Serial.printf("[ROCR] %u signals, %u turnouts registered\n",
+                  cfgMgr.cfg.numSignals, cfgMgr.cfg.numTurnouts);
 }
 
 // ── Phase 3: populate channel objects from config ────────────────────
@@ -223,12 +292,19 @@ void publishSensorStates() {
 }
 
 // ── MQTT command handler ─────────────────────────────────────────────
-// Expected payloads:
+// Rocrail topics are delegated directly to RocrailProtocol.
+// Board-specific topic (railway/<name>/command/set) accepts JSON:
 //   Relay:  {"channel":N, "action":"on"|"off"|"toggle"}
 //   Strip:  {"channel":N, "action":"color", "r":255,"g":0,"b":0}
-//           {"channel":N, "action":"off"}
+//           {"channel":N, "action":"off"|"pixel"}
 void onMqttCommand(const String& topic, const String& payload) {
     Serial.printf("[MQTT] ← %s : %s\n", topic.c_str(), payload.c_str());
+
+    // Delegate Rocrail XML topics
+    if (rocrail.hasTopic(topic)) {
+        rocrail.handle(topic, payload, mqtt, mux);
+        return;
+    }
 
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {

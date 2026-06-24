@@ -91,11 +91,47 @@
   </table>
 </div>
 
+<!-- Rocrail Signals card -->
+<div class="card">
+  <h2>SEGNALI ROCRAIL (SignalRGB via MUX)</h2>
+  <small style="color:var(--muted)">
+    Mappa gli ID Rocrail ai canali MUX. Ogni segnale occupa 3 canali consecutivi (R/G/V).
+  </small>
+  <table style="margin-top:12px">
+    <thead>
+      <tr>
+        <th>ID Rocrail</th><th>Tipo</th><th>CH-R</th><th>CH-G/Y</th><th>CH-V</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="sig-table"></tbody>
+  </table>
+  <button class="btn" style="margin-top:10px;width:auto;padding:8px 18px;font-size:.85rem"
+          onclick="addSignalRow()">+ Aggiungi segnale</button>
+</div>
+
+<!-- Rocrail Turnouts card -->
+<div class="card">
+  <h2>SCAMBI ROCRAIL (Relay impulso via MUX)</h2>
+  <small style="color:var(--muted)">
+    Due canali relay per scambio: uno per "dritto", uno per "deviata". Impulso in ms.
+  </small>
+  <table style="margin-top:12px">
+    <thead>
+      <tr>
+        <th>ID Rocrail</th><th>CH Dritto</th><th>CH Deviata</th><th>Impulso (ms)</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="sw-table"></tbody>
+  </table>
+  <button class="btn" style="margin-top:10px;width:auto;padding:8px 18px;font-size:.85rem"
+          onclick="addTurnoutRow()">+ Aggiungi scambio</button>
+</div>
+
 <!-- MQTT live topics info -->
 <div class="card">
   <h2>TOPIC MQTT</h2>
   <small style="color:var(--muted)">
-    Verranno generati automaticamente in base al nome scheda:
+    Generati automaticamente in base al nome scheda + topic fissi Rocrail:
   </small>
   <ul id="topic-list" style="margin-top:10px;padding-left:16px;font-size:.8rem;color:#a0b0c8;line-height:2"></ul>
 </div>
@@ -137,6 +173,8 @@ function populate(cfg) {
 
   updateTopics(cfg.hostname || 'ShieldH0');
   buildMuxTable(cfg.pin_map || new Array(16).fill(0));
+  buildSignalTable(cfg.signals || []);
+  buildTurnoutTable(cfg.turnouts || []);
 }
 
 function buildMuxTable(pinMap) {
@@ -161,11 +199,89 @@ function buildMuxTable(pinMap) {
 
 function updateTopics(name) {
   const list = document.getElementById('topic-list');
+  list.innerHTML = '';
   ['sensors/state','command/set','status/heartbeat'].forEach(t => {
     const li = document.createElement('li');
     li.textContent = `railway/${name}/${t}`;
     list.appendChild(li);
   });
+  const rocrailTopics = [
+    'rocrail/service/info/sg  ← comandi segnali',
+    'rocrail/service/client   → feedback segnali',
+    'rocrail/service/command  ← comandi scambi',
+    'rocrail/service/info     → feedback scambi',
+    'railway/status/segnali   (LWT segnali)',
+    'railway/status/scambi    (LWT scambi)',
+  ];
+  rocrailTopics.forEach(t => {
+    const li = document.createElement('li');
+    li.style.color = '#7986cb';
+    li.textContent = t;
+    list.appendChild(li);
+  });
+}
+
+// ── Signals table ─────────────────────────────────────────────────────
+function buildSignalTable(signals) {
+  const tb = document.getElementById('sig-table');
+  tb.innerHTML = '';
+  (signals || []).forEach(s => addSignalRow(s));
+}
+
+function addSignalRow(s = {}) {
+  const tb = document.getElementById('sig-table');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="sg-id"   type="text"   value="${s.id||''}"   placeholder="sg1" style="width:80px"></td>
+    <td>
+      <select class="sg-type" style="width:90px">
+        <option value="0" ${(!s.type||s.type==0)?'selected':''}>MAIN</option>
+        <option value="1" ${s.type==1?'selected':''}>SHUNT</option>
+      </select>
+    </td>
+    <td><input class="sg-chr" type="number" min="0" max="15" value="${s.chR||0}" style="width:55px"></td>
+    <td><input class="sg-chg" type="number" min="0" max="15" value="${s.chG!==undefined?s.chG:1}" style="width:55px"></td>
+    <td><input class="sg-chv" type="number" min="0" max="15" value="${s.chV!==undefined?s.chV:2}" style="width:55px"></td>
+    <td><button onclick="this.closest('tr').remove()" style="background:#b71c1c;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer">✕</button></td>`;
+  tb.appendChild(tr);
+}
+
+function getSignals() {
+  return Array.from(document.querySelectorAll('#sig-table tr')).map(tr => ({
+    id:   tr.querySelector('.sg-id').value.trim(),
+    type: parseInt(tr.querySelector('.sg-type').value),
+    chR:  parseInt(tr.querySelector('.sg-chr').value),
+    chG:  parseInt(tr.querySelector('.sg-chg').value),
+    chV:  parseInt(tr.querySelector('.sg-chv').value),
+  })).filter(s => s.id);
+}
+
+// ── Turnouts table ────────────────────────────────────────────────────
+function buildTurnoutTable(turnouts) {
+  const tb = document.getElementById('sw-table');
+  tb.innerHTML = '';
+  (turnouts || []).forEach(t => addTurnoutRow(t));
+}
+
+function addTurnoutRow(t = {}) {
+  const tb = document.getElementById('sw-table');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="sw-id"    type="text"   value="${t.id||''}"  placeholder="sw1" style="width:80px"></td>
+    <td><input class="sw-chs"   type="number" min="0" max="15" value="${t.chS||0}" style="width:55px"></td>
+    <td><input class="sw-chd"   type="number" min="0" max="15" value="${t.chD!==undefined?t.chD:1}" style="width:55px"></td>
+    <td><input class="sw-pulse" type="number" min="50" max="2000" value="${t.pulse||300}" style="width:70px"></td>
+    <td><button onclick="this.closest('tr').remove()" style="background:#b71c1c;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer">✕</button></td>`;
+  tb.appendChild(tr);
+}
+
+function getTurnouts() {
+  return Array.from(document.querySelectorAll('#sw-table tr')).map(tr => ({
+    id:    tr.querySelector('.sw-id').value.trim(),
+    chS:   parseInt(tr.querySelector('.sw-chs').value),
+    chD:   parseInt(tr.querySelector('.sw-chd').value),
+    pulse: parseInt(tr.querySelector('.sw-pulse').value),
+  })).filter(t => t.id);
 }
 
 async function saveConfig() {
@@ -175,13 +291,15 @@ async function saveConfig() {
   const pinMap = Array.from(document.querySelectorAll('select.role'))
     .map(s => parseInt(s.value));
 
-  const body = {
+    const body = {
     hostname:    document.getElementById('hostname').value.trim(),
     mqtt_broker: document.getElementById('broker').value.trim(),
     mqtt_port:   parseInt(document.getElementById('port').value) || 1883,
     mqtt_user:   document.getElementById('user').value.trim(),
     mqtt_pass:   document.getElementById('pass').value,
     pin_map:     pinMap,
+    signals:     getSignals(),
+    turnouts:    getTurnouts(),
   };
 
   try {
@@ -216,7 +334,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('hostname').addEventListener('input', e => {
     document.getElementById('subtitle').textContent =
       'http://' + (e.target.value || 'shieldh0') + '.local/';
-    document.getElementById('topic-list').innerHTML = '';
     updateTopics(e.target.value || 'ShieldH0');
   });
 });
