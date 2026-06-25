@@ -38,6 +38,11 @@ public:
 
     void registerTurnout(TurnoutChannel* t) {
         _turnouts[t->rocrailId] = t;
+        if (_live) {
+            TurnoutLive& tl = _live->turnouts[t->rocrailId];
+            tl.position = "straight";
+            tl.busy     = false;
+        }
     }
 
     // Map a Rocrail block/sensor ID to a MUX channel index
@@ -113,6 +118,11 @@ public:
             sl.lamps.r = e.ch->r;
             sl.lamps.g = e.ch->g;
             sl.lamps.v = e.ch->b;
+        }
+        for (auto& [id, t] : _turnouts) {
+            TurnoutLive& tl = _live->turnouts[id];
+            tl.position = t->stateStr();
+            tl.busy     = t->isBusy();
         }
     }
 

@@ -83,12 +83,12 @@ Modalità: `clock` · `timetable` · `status` · `event`.
 
 ---
 
-### Fase 3 — Grafica scambi
+### Fase 3 — Grafica scambi ✅ (completata)
 
-- SVG deviatoio (Y-track): ramo evidenziato per straight/turnout
-- Animazione `busy` durante impulso relè
+- SVG deviatoio con ramo evidenziato (raddrizzato / deviato)
+- Animazione pulse sul fulcro durante impulso relè (`busy`)
 - `/api/status`: `{ position, busy }`
-- Tab test: Raddrizza / Devia
+- Test manuale: pulsanti → / ↗ → `POST /api/test`
 
 ---
 

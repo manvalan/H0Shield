@@ -83,6 +83,12 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .sig-test{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px}
 .sig-test button{font-size:.62rem;padding:4px 7px;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:6px;cursor:pointer}
 .sig-test button:active{opacity:.7;border-color:var(--accent);color:var(--text)}
+.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.sw-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center}
+.sw-card h4{font-size:.78rem;margin:6px 0 2px;font-weight:600}
+.sw-meta{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.sw-busy{animation:sw-pulse .35s ease-in-out infinite alternate}
+@keyframes sw-pulse{from{opacity:1;filter:drop-shadow(0 0 5px #fbbf24)}to{opacity:.45}}
 @media(max-width:480px){.stats{grid-template-columns:1fr}.row2{grid-template-columns:1fr}.mux-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -416,8 +422,30 @@ async function pollStatus(){
     document.getElementById('d-ip').textContent=s.ip||'—';
     renderSensors('d-sens',s.sensors,s.tof);
     renderSignals('d-sig',s.signals);
-    renderTiles('d-sw',s.turnouts,(k,v)=>({id:k,meta:'Pos',chip:v,cls:'chip-n'}));
+    renderTurnouts('d-sw',s.turnouts);
   }catch(e){}
+}
+function svgTurnout(pos,busy){
+  const st=pos==='straight', dv=pos==='turnout';
+  const ac='#6366f1', mu='#52525b', bc=busy?'#fbbf24':'#3f3f46';
+  const cls=busy?' sw-busy':'';
+  return`<svg viewBox="0 0 80 48" width="80" height="44"><line x1="4" y1="24" x2="30" y2="24" stroke="${st?ac:mu}" stroke-width="4" stroke-linecap="round"/><line x1="30" y1="24" x2="76" y2="24" stroke="${st?ac:mu}" stroke-width="4" stroke-linecap="round"/><line x1="30" y1="24" x2="76" y2="6" stroke="${dv?ac:mu}" stroke-width="4" stroke-linecap="round"/><circle cx="30" cy="24" r="6" fill="${bc}" class="${cls}"/></svg>`;
+}
+function renderTurnouts(id,turnouts){
+  const el=document.getElementById(id); const e=turnouts?Object.entries(turnouts):[];
+  if(!e.length){el.innerHTML='<div class="empty">Nessuno scambio configurato</div>';return}
+  el.innerHTML='<div class="sw-grid">'+e.map(([sid,tw])=>{
+    const pos=tw.position||'straight', busy=!!tw.busy;
+    const lbl=pos==='straight'?'Raddrizzato':'Deviato';
+    const btns=`<button onclick="testTurnout('${sid}','straight')">→</button><button onclick="testTurnout('${sid}','turnout')">↗</button>`;
+    return`<div class="sw-card">${svgTurnout(pos,busy)}<h4>${sid}</h4><div class="sw-meta">${lbl}${busy?' · impulso':''}</div><div class="sig-test">${btns}</div></div>`;
+  }).join('')+'</div>';
+}
+async function testTurnout(id,cmd){
+  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'turnout',id,cmd})});
+  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
+  if(r.ok){toast('Scambio '+id+' → '+cmd);pollStatus();}
+  else toast('Test fallito');
 }
 function lampCls(on,color){return on?'lamp-'+color+'-on':'lamp-off'}
 function svgMain(l){return`<svg viewBox="0 0 52 80" width="52" height="68"><rect x="24" y="22" width="4" height="54" fill="#3f3f46" rx="1"/><circle cx="26" cy="12" r="9" class="${lampCls(l.r,'r')}"/><circle cx="26" cy="30" r="9" class="${lampCls(l.g,'y')}"/><circle cx="26" cy="48" r="9" class="${lampCls(l.v,'g')}"/></svg>`}

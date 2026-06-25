@@ -31,6 +31,11 @@ struct SignalLive {
     SignalLamps lamps;
 };
 
+struct TurnoutLive {
+    String position;   // "straight" | "turnout"
+    bool   busy       = false;
+};
+
 struct LiveStatus {
     bool   mqttConnected = false;
     int8_t rssi          = 0;
@@ -38,5 +43,5 @@ struct LiveStatus {
     std::map<uint8_t, SensorLive> sensors;
     ToFLive                       tof;
     std::map<String, SignalLive>  signals;
-    std::map<String, String>      turnoutStates;
+    std::map<String, TurnoutLive> turnouts;
 };

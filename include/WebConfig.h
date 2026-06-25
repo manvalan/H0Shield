@@ -323,8 +323,10 @@ private:
                 lamps["v"] = sg.lamps.v;
             }
             JsonObject sw = doc["turnouts"].to<JsonObject>();
-            for (auto& [id, st] : _live->turnoutStates) {
-                sw[id] = st;
+            for (auto& [id, tw] : _live->turnouts) {
+                JsonObject o = sw[id].to<JsonObject>();
+                o["position"] = tw.position;
+                o["busy"]     = tw.busy;
             }
         }
 

@@ -183,7 +183,6 @@ void loop() {
     rocrail.update(mux);
     rocrail.syncLiveStatus();
 
-    // Keep live status up to date (cheap, runs every loop)
     liveStatus.mqttConnected = mqtt.connected();
     liveStatus.rssi          = (int8_t)WiFi.RSSI();
     for (auto& [ch, s] : sensors) {
@@ -198,9 +197,6 @@ void loop() {
                 break;
             }
         }
-    }
-    for (auto& t : turnouts) {
-        liveStatus.turnoutStates[t->rocrailId] = t->stateStr();
     }
 }
 
