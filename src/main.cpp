@@ -205,12 +205,12 @@ void buildRocrailObjects() {
         if (sigIt != signalChannels.end()) {
             found = sigIt->second;
         } else {
-            auto* sig = new SignalRGBChannel(sc.chR);
+            auto* sig = new SignalRGBChannel(sc.chR, sc.chG, sc.chV);
             signalChannels[sc.chR] = sig;
             channels.emplace_back(sig);
             found = sig;
-            Serial.printf("[ROCR] Auto-created SignalRGBChannel for %s (ch %u)\n",
-                          sc.id, sc.chR);
+            Serial.printf("[ROCR] Auto-created SignalRGBChannel for %s (ch %u/%u/%u)\n",
+                          sc.id, sc.chR, sc.chG, sc.chV);
         }
 
         rocrail.registerSignal(sc.id, static_cast<SignalType>(sc.type), found);
@@ -276,11 +276,13 @@ void buildChannelObjects() {
             }
 
             case ChannelRole::SIGNAL_RGB: {
-                auto* sig = new SignalRGBChannel(i);
+                uint8_t gCh = (i + 1 < MUX_CHANNELS) ? i + 1 : i;
+                uint8_t vCh = (i + 2 < MUX_CHANNELS) ? i + 2 : i;
+                auto* sig = new SignalRGBChannel(i, gCh, vCh);
                 signalChannels[i] = sig;
                 channels.emplace_back(sig);
-                Serial.printf("[MAP] Ch%02u → Signal RGB (ch %u-%u)\n", i, i, i + 2);
-                i += 2;  // consumes three consecutive MUX channels
+                Serial.printf("[MAP] Ch%02u → Signal RGB (ch %u/%u/%u)\n", i, i, gCh, vCh);
+                i += 2;  // pin_map marks three consecutive MUX channels
                 break;
             }
 
@@ -374,7 +376,7 @@ void onMqttCommand(const String& topic, const String& payload) {
 
         String ack = "{\"channel\":" + String(ch) +
                      ",\"state\":"   + (r->state ? "true" : "false") + "}";
-        mqtt.publish("sensors/state", ack);
+        mqtt.publish("relays/state", ack);
         return;
     }
 

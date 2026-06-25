@@ -188,8 +188,7 @@ private:
         }
     }
 
-    // ── Drive MUX-based RGB signal ────────────────────────────────────
-    //  SignalRGBChannel uses 3 consecutive MUX digital outputs: R, G, B
+    // ── Drive MUX-based RGB signal (3 independent channels: chR, chG, chV) ─
     static void _applySignalAspect(SignalEntry& e, SignalAspect asp) {
         bool r = false, g = false, b = false;
 

@@ -28,17 +28,18 @@ public:
         uint8_t dist = _tof->readRangeSingleMillimeters();
 
         if (_tof->timeoutOccurred()) {
-            _mqtt->publish("tof/status", "timeout");
+            _publishStatus("timeout");
             return;
         }
 
         // VL6180X range: 0–100 mm typical; >200 usually means no target
         uint8_t errCode = _tof->readReg(VL6180X::RESULT__RANGE_STATUS) >> 4;
         if (errCode != 0) {
-            String s = "error:" + String(errCode);
-            _mqtt->publish("tof/status", s);
+            _publishStatus(String("error:") + errCode);
             return;
         }
+
+        _publishStatus("ok");
 
         // Publish only on change (±1 mm hysteresis)
         if (abs((int)dist - (int)_prevDist) > 1) {
@@ -52,8 +53,12 @@ public:
             uint16_t als = _tof->readAmbientSingle();
             _mqtt->publish("tof/ambient", String(als));
         }
+    }
 
-        _mqtt->publish("tof/status", "ok");
+    void _publishStatus(const String& status) {
+        if (status == _prevStatus) return;
+        _prevStatus = status;
+        _mqtt->publish("tof/status", status);
     }
 
 private:
@@ -63,4 +68,5 @@ private:
     unsigned long  _lastMs       = 0;
     unsigned long  _lastAmbientMs= 0;
     uint8_t        _prevDist     = 255;
+    String         _prevStatus;
 };

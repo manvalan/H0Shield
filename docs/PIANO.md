@@ -50,19 +50,17 @@ Modalità: `clock` · `timetable` · `status` · `event`.
 
 ## Fasi di implementazione
 
-### Fase 0 — Bug critici (PRIMA DI TUTTO)
+### Fase 0 — Bug critici ✅ (completata)
 
-| ID | Problema | Intervento |
-|----|----------|------------|
-| B1 | `SignalRGBChannel` ignora `chG`/`chV` config | Usare tre canali MUX indipendenti |
-| B2 | GPIO 34 input-only su ESP32 | Documentare vincolo hardware in `Config.h` |
-| B3 | `/api/test` senza autenticazione | Richiedere `X-Auth-Token` se password impostata |
-| B4 | Token auth perso al reboot | `/api/auth/check` già presente; UI invalida token stale |
-| B5 | `MarmottaChannel::delay()` blocca loop | Impulso non bloccante (state machine) |
-| B6 | ToF pubblica `status` ogni 100 ms | Pubblicare solo su cambio stato |
-| B7 | PCA9685 non integrato | Rimandato a Fase 6; log informativo |
-
-**Criterio di done:** build OK, flash &lt; 98%, test manuale segnali con ch non consecutivi.
+| ID | Stato |
+|----|-------|
+| B1 | ✅ `SignalRGBChannel` usa chR/chG/chV indipendenti |
+| B2 | ✅ Nota GPIO 34 in `Config.h` |
+| B3 | ✅ `/api/test` richiede auth |
+| B4 | ✅ `/api/auth/check` (sessione precedente) |
+| B5 | ✅ Marmotta non bloccante |
+| B6 | ✅ ToF status solo su cambio |
+| B7 | ⏳ PCA9685 → Fase 6 |
 
 ---
 

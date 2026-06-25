@@ -54,24 +54,26 @@ public:
     }
 };
 
-// ── RGB Semaphore (uses 3 consecutive MUX channels: ch, ch+1, ch+2) ─
+// ── RGB Semaphore (3 independent MUX channels: chR, chG, chV) ───────
 class SignalRGBChannel : public IChannel {
 public:
+    uint8_t chR = 0, chG = 0, chV = 0;
     uint8_t r = 0, g = 0, b = 0;   // 0 = off, 1 = on (digital)
 
-    using IChannel::IChannel;
+    SignalRGBChannel(uint8_t rCh, uint8_t gCh, uint8_t vCh)
+        : IChannel(rCh), chR(rCh), chG(gCh), chV(vCh) {}
 
     void setColor(bool red, bool green, bool blue, MuxDriver& mux) {
         r = red; g = green; b = blue;
-        _writePin(ch,   red,   mux);
-        _writePin(ch+1, green, mux);
-        _writePin(ch+2, blue,  mux);
+        _writePin(chR, red,   mux);
+        _writePin(chG, green, mux);
+        _writePin(chV, blue,  mux);
     }
 
     void update(MuxDriver& mux) override {
-        _writePin(ch,   r, mux);
-        _writePin(ch+1, g, mux);
-        _writePin(ch+2, b, mux);
+        _writePin(chR, r, mux);
+        _writePin(chG, g, mux);
+        _writePin(chV, b, mux);
     }
 
 private:
@@ -142,18 +144,33 @@ public:
     void update(MuxDriver&) override {}
 };
 
-// ── Marmotta (audio trigger – single pulse) ──────────────────────────
+// ── Marmotta (audio trigger – non-blocking pulse) ────────────────────
 class MarmottaChannel : public IChannel {
 public:
     using IChannel::IChannel;
 
     void trigger(MuxDriver& mux, uint32_t pulseMs = 200) {
+        if (_active) return;
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, OUTPUT);
         mux.writeDigital(true);
-        delay(pulseMs);
-        mux.writeDigital(false);
+        _active   = true;
+        _startMs  = millis();
+        _duration = pulseMs;
     }
 
-    void update(MuxDriver&) override {}  // no periodic action
+    void update(MuxDriver& mux) override {
+        if (!_active) return;
+        if (millis() - _startMs >= _duration) {
+            mux.selectChannel(ch);
+            pinMode(MUX_PIN_SIG, OUTPUT);
+            mux.writeDigital(false);
+            _active = false;
+        }
+    }
+
+private:
+    bool          _active   = false;
+    unsigned long _startMs  = 0;
+    uint32_t      _duration = 0;
 };

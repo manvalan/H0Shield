@@ -313,6 +313,7 @@ private:
     }
 
     void _handleTest() {
+        if (!_checkAuth()) { _send401(); return; }
         if (!_server.hasArg("plain") || !_testHandler) {
             _server.send(400, "text/plain", "Not available");
             return;

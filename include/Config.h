@@ -7,6 +7,9 @@
 #define MUX_PIN_A2   25
 #define MUX_PIN_A3   26
 #define MUX_PIN_SIG  34   // ADC input (reads from selected MUX channel)
+// NOTE: GPIO 34–39 are INPUT-ONLY on ESP32. Digital MUX drive (relays,
+// signal lamps) requires hardware that routes outputs through a driver pin,
+// or a shield redesign. ADC sensor reads on SIG work as documented.
 #define MUX_CHANNELS 16
 
 // ── I2C (VL6180X – dedicated bus, optional, NOT through MUX) ────────
