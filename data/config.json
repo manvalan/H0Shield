@@ -9,9 +9,52 @@
   "sensor_threshold": 512,
   "tof_enabled": true,
   "tof_threshold_mm": 35,
+  "boot_aspect_main": "red",
+  "boot_aspect_shunt": "stop",
   "pin_map": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   "signals": [],
   "turnouts": [],
   "sensors_rb": [],
-  "tof_blocks": []
+  "tof_blocks": [],
+  "displays": [
+    {
+      "id": "bin3",
+      "type": "platform",
+      "i2c_addr": 60,
+      "platform_num": 3,
+      "destination": "",
+      "departure_time": "",
+      "status": "libero"
+    },
+    {
+      "id": "tab1",
+      "type": "timetable",
+      "i2c_addr": 61,
+      "station_name": "Stazione H0",
+      "rows": [
+        { "time": "14:30", "destination": "Roma Termini", "platform": "3", "status": "" },
+        { "time": "14:45", "destination": "Torino P.N.", "platform": "1", "status": "ritardo" }
+      ]
+    }
+  ],
+  "accessories": [
+    { "id": "luci_sala", "profile": "light", "mux_ch": 4 },
+    { "id": "campana", "profile": "bell", "mux_ch": 7, "pulse_ms": 400 },
+    { "id": "pl_nord", "profile": "level_xing", "mux_ch_lights": 5, "mux_ch_bar": 6, "pulse_ms": 500 }
+  ],
+  "scenarios": [
+    {
+      "id": "approccio_bin3",
+      "enabled": true,
+      "mux_ch": 2,
+      "accessory_pl": "pl_nord",
+      "accessory_light": "luci_sala",
+      "accessory_bell": "campana",
+      "display_id": "bin3",
+      "status_occupied": "in arrivo",
+      "status_free": "libero",
+      "dest_occupied": "Treno in transito",
+      "dest_free": ""
+    }
+  ]
 }

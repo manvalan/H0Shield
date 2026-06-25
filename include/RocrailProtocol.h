@@ -8,6 +8,10 @@
 #include "MQTTManager.h"
 #include "LiveStatus.h"
 
+#ifdef USE_PCA9685
+#include "PCA9685Signal.h"
+#endif
+
 /**
  * Rocrail MQTT protocol adapter.
  *
@@ -32,8 +36,33 @@ public:
         SignalEntry& e = _signals[id];
         e.type   = type;
         e.ch     = ch;
+#ifdef USE_PCA9685
+        e.pca    = nullptr;
+#endif
         e.aspect = (type == SignalType::MAIN) ? "red" : "stop";
         _initLiveSignal(id, type, e.aspect);
+    }
+
+#ifdef USE_PCA9685
+    void registerPcaSignal(const String& id, SignalType type, PCA9685Signal* pca) {
+        SignalEntry& e = _signals[id];
+        e.type = type;
+        e.ch   = nullptr;
+        e.pca  = pca;
+        e.aspect = (type == SignalType::MAIN) ? "red" : "stop";
+        _initLiveSignal(id, type, e.aspect);
+    }
+#endif
+
+    /** Apply configured boot aspects to all registered signals. */
+    void applyBootAspects(const char* bootMain, const char* bootShunt) {
+        for (auto& [id, e] : _signals) {
+            const char* aspStr = (e.type == SignalType::MAIN) ? bootMain : bootShunt;
+            SignalAspect asp = _parseAspect(String(aspStr), e.type);
+            _applySignalAspect(e, asp);
+            e.aspect = aspStr;
+            _syncLiveLamps(id, e);
+        }
     }
 
     void registerTurnout(TurnoutChannel* t) {
@@ -111,13 +140,20 @@ public:
     void syncLiveStatus() {
         if (!_live) return;
         for (auto& [id, e] : _signals) {
-            if (!e.ch) continue;
             SignalLive& sl = _live->signals[id];
             sl.type   = static_cast<uint8_t>(e.type);
             sl.aspect = e.aspect;
-            sl.lamps.r = e.ch->r;
-            sl.lamps.g = e.ch->g;
-            sl.lamps.v = e.ch->b;
+            if (e.ch) {
+                sl.lamps.r = e.ch->r;
+                sl.lamps.g = e.ch->g;
+                sl.lamps.v = e.ch->b;
+#ifdef USE_PCA9685
+            } else if (e.pca) {
+                sl.lamps.r = e.pca->lampR;
+                sl.lamps.g = e.pca->lampG;
+                sl.lamps.v = e.pca->lampV;
+#endif
+            }
         }
         for (auto& [id, t] : _turnouts) {
             TurnoutLive& tl = _live->turnouts[id];
@@ -134,6 +170,9 @@ private:
     struct SignalEntry {
         SignalType        type;
         SignalRGBChannel* ch;
+#ifdef USE_PCA9685
+        PCA9685Signal*    pca = nullptr;
+#endif
         String            aspect;
     };
 
@@ -181,14 +220,7 @@ private:
         Serial.printf("[ROCR] Signal %s → %s\n", id.c_str(), aspect.c_str());
 
         entry.aspect = aspect;
-        if (_live) {
-            SignalLive& sl = _live->signals[id];
-            sl.type   = static_cast<uint8_t>(entry.type);
-            sl.aspect = aspect;
-            sl.lamps.r = entry.ch->r;
-            sl.lamps.g = entry.ch->g;
-            sl.lamps.v = entry.ch->b;
-        }
+        _syncLiveLamps(id, entry);
     }
 
     // ── Turnout handler ───────────────────────────────────────────────
@@ -243,6 +275,13 @@ private:
 
     // ── Drive MUX-based RGB signal (3 independent channels: chR, chG, chV) ─
     static void _applySignalAspect(SignalEntry& e, SignalAspect asp) {
+#ifdef USE_PCA9685
+        if (e.pca) {
+            e.pca->setAspect(asp);
+            return;
+        }
+#endif
+        if (!e.ch) return;
         bool r = false, g = false, b = false;
 
         if (e.type == SignalType::MAIN) {
@@ -266,6 +305,24 @@ private:
         e.ch->r = r;
         e.ch->g = g;
         e.ch->b = b;
+    }
+
+    void _syncLiveLamps(const String& id, SignalEntry& e) {
+        if (!_live) return;
+        SignalLive& sl = _live->signals[id];
+        sl.type   = static_cast<uint8_t>(e.type);
+        sl.aspect = e.aspect;
+        if (e.ch) {
+            sl.lamps.r = e.ch->r;
+            sl.lamps.g = e.ch->g;
+            sl.lamps.v = e.ch->b;
+#ifdef USE_PCA9685
+        } else if (e.pca) {
+            sl.lamps.r = e.pca->lampR;
+            sl.lamps.g = e.pca->lampG;
+            sl.lamps.v = e.pca->lampV;
+#endif
+        }
     }
 
     void _initLiveSignal(const String& id, SignalType type, const String& aspect) {

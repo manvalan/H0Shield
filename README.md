@@ -1,194 +1,160 @@
 # ShieldH0 – Railway Automation Firmware
 
 ESP32 (WeMos D32R1) firmware for H0-scale model railway automation.  
-Fully compatible with **Rocrail** via MQTT (same protocol as [SignalBoard](https://github.com/manvalan/SignalBoard) and [TurnoutBoard](https://github.com/manvalan/TurnoutBoard)).
+Compatible with **Rocrail** via MQTT (same protocol as [SignalBoard](https://github.com/manvalan/SignalBoard) and [TurnoutBoard](https://github.com/manvalan/TurnoutBoard)).
 
 ---
 
 ## Features
 
-| Feature | Details |
-|---|---|
-| **WiFi provisioning** | Captive portal (WiFiManager) — no hardcoded credentials |
-| **Persistent config** | LittleFS `config.json` — survives reboots |
-| **mDNS** | Reachable at `<hostname>.local`; also resolves broker by `*.local` hostname |
-| **MUX driver** | CD74HC4067 × 16 channels — sensors, relays, signals (R/G/Y), marmotta, WS2812 |
-| **VL6180X** | Time-of-flight sensor on dedicated I2C bus (GPIO 21/22) |
-| **MQTT** | PubSub with LWT, heartbeat, mDNS broker resolution, reconnect back-off |
-| **Rocrail** | Signal aspect + turnout commands via standard XML topics |
-| **OTA** | ArduinoOTA (password = hostname) |
-| **Web UI** | Visual MUX mapping, signal/turnout config, live dashboard, manual test |
+| Area | Details |
+|------|---------|
+| **WiFi** | Captive portal setup, credentials in NVS (encrypted password) |
+| **Web UI** | Dashboard live, 7 tab (Dashboard · Rete · Sensori · Display · Accessori · Scenari · Sistema) |
+| **MUX** | CD74HC4067 × 16 ch — sensori, relè, semafori RGB, marmotta, WS2812 |
+| **ToF** | VL6180X @ 0x29, soglia mm, feedback blocchi Rocrail |
+| **Display** | OLED SH1106 128×64 — binario + tabellone orario (opz. U8g2) |
+| **Accessori** | Relè nominati: luci, PL, campana, sbarra (`accessories[]`) |
+| **Scenari** | Sensore occupato → PL + luci + display (`scenarios[]`) |
+| **Rocrail** | Segnali, scambi, blocchi via MQTT XML |
+| **MQTT** | Topic `railway/<hostname>/…`, LWT, heartbeat |
+| **OTA** | ArduinoOTA |
+
+---
+
+## Build environments
+
+| Env | Uso |
+|-----|-----|
+| `wemos_d1_mini32_usb` | Default USB — firmware base (~98% flash) |
+| `wemos_d1_mini32_usb_display` | + OLED U8g2 (`USE_DISPLAY`) |
+| `wemos_d1_mini32_pca_usb` | + PCA9685 PWM segnali (`USE_PCA9685`) |
+| `shieldh0_minimal` | Alias di `wemos_d1_mini32_usb` |
+| `shieldh0_full` | Display + PCA9685 insieme |
+
+```bash
+# Filesystem (prima volta o dopo modifica data/)
+pio run -e wemos_d1_mini32_usb -t uploadfs
+
+# Firmware USB
+pio run -e wemos_d1_mini32_usb -t upload
+
+# Con display OLED
+pio run -e wemos_d1_mini32_usb_display -t upload
+
+# Con PCA9685 (SignalBoard-style PWM)
+pio run -e wemos_d1_mini32_pca_usb -t upload
+
+# Tutto abilitato
+pio run -e shieldh0_full -t upload
+```
 
 ---
 
 ## Hardware
 
 ```
-WeMos D32R1 (ESP32)
-│
-├── MUX CD74HC4067
-│   ├── A0  → GPIO 32        ├── A2  → GPIO 25
-│   ├── A1  → GPIO 33        ├── A3  → GPIO 26
-│   └── SIG → GPIO 34 (ADC)
-│
-├── VL6180X (I2C, dedicated)
-│   ├── SDA → GPIO 21
-│   └── SCL → GPIO 22
-│
-├── WS2812B strips (direct GPIO, NOT through MUX)
-│   ├── Strip 0 → GPIO 4    ├── Strip 2 → GPIO 18
-│   └── Strip 1 → GPIO 5    └── Strip 3 → GPIO 19
-│
-└── Reset button  → GPIO 0 (BOOT, hold 3 s to clear WiFi credentials)
+WeMos D32R1
+├── MUX CD74HC4067  (A0–A3: 32,33,25,26 · SIG: GPIO 34 ADC)
+├── I2C SDA 21 / SCL 22
+│   ├── VL6180X @ 0x29
+│   ├── OLED binario @ 0x3C
+│   ├── OLED tabellone @ 0x3D
+│   └── PCA9685 @ 0x40 (opz.)
+├── WS2812: GPIO 4, 5, 18, 19
+└── Reset WiFi: GPIO 0 (BOOT, 3 s)
 ```
+
+Vedi [docs/CABLING.md](docs/CABLING.md) per schema plastico H0.
 
 ---
 
-## MUX Channel Roles
-
-| Role (config value) | Description | MUX channels used |
-|---|---|---|
-| `0` — UNUSED | Not configured | 1 |
-| `1` — SENSOR | Absorption/occupancy sensor (ADC) | 1 |
-| `2` — RELAY | Digital relay output | 1 |
-| `3` — SIGNAL_RGB | Semaphore RGB (digital: R, G/Y, V) | **3 consecutive** |
-| `4` — MARMOTTA | Audio trigger (pulse) | 1 |
-| `5` — SERIAL_RGB | WS2812 strip (data on dedicated GPIO) | 1 (tag only) |
-
----
-
-## Rocrail MQTT Protocol
-
-### Signal commands (`TYPE_MAIN` and `TYPE_SHUNT`)
-
-| Direction | Topic | Payload |
-|---|---|---|
-| ← subscribe | `rocrail/service/info/sg` | `<sg id="sg1" cmd="aspect" aspect="green"/>` |
-| → feedback | `rocrail/service/client` | same XML |
-| retained LWT | `railway/status/segnali` | `{"module":"…","status":"online\|offline"}` |
-
-**Aspects:** `red` · `green` · `yellow` (MAIN) — `stop` · `go` · `oblique` (SHUNT)
-
-### Turnout commands
-
-| Direction | Topic | Payload |
-|---|---|---|
-| ← subscribe | `rocrail/service/command` | `<sw id="sw1" cmd="straight" addr1="1"/>` |
-| → feedback | `rocrail/service/info` | `<fb id="sw1" addr1="1" cmd="straight"/>` |
-| retained LWT | `railway/status/scambi` | `{"module":"…","status":"online\|offline"}` |
-
-**Commands:** `straight` · `turnout`  
-Turnouts use a **timed pulse** on two MUX relay channels (default 300 ms).
-
-### Block detector feedback
-
-When a sensor mapped to a Rocrail ID changes state:
-
-```
-→ rocrail/service/info    <fb id="bk1" state="free|occupied"/>
-```
-
-### Board-specific topics
-
-```
-railway/<hostname>/sensors/state      ← retained JSON {ch: occupied, …}
-railway/<hostname>/command/set        ← {"channel":N,"action":"on|off|toggle"}
-railway/<hostname>/status/heartbeat   ← "online" every 5 s
-railway/<hostname>/tof/distance       ← mm (on change)
-railway/<hostname>/tof/ambient        ← ALS counts (every 1 s)
-```
-
----
-
-## Configuration (Web UI)
-
-Visit `http://<hostname>.local/` after connecting to WiFi.
-
-### Sections
-
-1. **Rete & MQTT** — hostname, broker IP or `*.local`, port, credentials
-2. **Mapping canali MUX** — assign role to each of the 16 MUX channels
-3. **Segnali Rocrail** — map Rocrail signal IDs to MUX channel triplets (R/G/V)
-4. **Scambi Rocrail** — map Rocrail turnout IDs to two MUX relay channels + pulse duration
-5. **Dashboard live** — real-time sensor occupancy, signal aspects, turnout positions, MQTT status
-6. **Test manuale** — send signal aspects and turnout commands directly from the browser
-
-The server validates **channel conflicts** (duplicate MUX assignment) before saving.
-
-### `config.json` structure
+## Config (`config.json`)
 
 ```json
 {
   "hostname": "ShieldH0",
-  "mqtt_broker": "192.168.1.x",
-  "mqtt_port": 1883,
-  "mqtt_user": "",
-  "mqtt_pass": "",
-  "pin_map": [1, 2, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "boot_aspect_main": "red",
+  "boot_aspect_shunt": "stop",
   "signals": [
-    { "id": "sg1", "type": 0, "chR": 2, "chG": 3, "chV": 4 }
+    { "id": "sg1", "type": 0, "chR": 0, "chG": 1, "chV": 2 },
+    { "id": "sg2", "type": 0, "chR": 3, "chG": 4, "chV": 5, "use_pca": true }
   ],
-  "turnouts": [
-    { "id": "sw1", "chS": 5, "chD": 6, "pulse": 300 }
+  "accessories": [
+    { "id": "luci_sala", "profile": "light", "mux_ch": 4 },
+    { "id": "pl_nord", "profile": "level_xing", "mux_ch_lights": 5, "mux_ch_bar": 6 }
   ],
-  "sensors_rb": [
-    { "rocrail_id": "bk1", "mux_ch": 0 }
+  "displays": [
+    { "id": "bin3", "type": "platform", "i2c_addr": 60, "platform_num": 3 }
+  ],
+  "scenarios": [
+    {
+      "id": "approccio_bin3",
+      "mux_ch": 2,
+      "accessory_pl": "pl_nord",
+      "accessory_light": "luci_sala",
+      "display_id": "bin3",
+      "status_occupied": "in arrivo"
+    }
   ]
 }
 ```
 
----
+**Aspect di boot:** configurabile in tab Sistema (`boot_aspect_main` / `boot_aspect_shunt`).  
+Applicate a tutti i segnali MUX e PCA9685 all'avvio.
 
-## Flash Instructions
-
-```bash
-# 1. Upload filesystem (first time, or after changing data/)
-pio run -t uploadfs
-
-# 2. Upload firmware (USB)
-pio run -t upload
-
-# 3. Subsequent OTA updates
-pio run -t upload --upload-port ShieldH0.local
-```
-
-First boot opens WiFi AP `ShieldH0-<hostname>` → connect → configure at `http://192.168.4.1`.
+**Segnali PCA9685:** `"use_pca": true` — `chR/chG/chV` sono pin PCA (0–15), non MUX. Richiede build `-D USE_PCA9685`.
 
 ---
 
-## Optional: PCA9685 Signal Driver
+## MQTT
 
-If you want PWM brightness control for signals (as in SignalBoard), build with:
+### Rocrail (fissi)
 
-```bash
-pio run -e wemos_d1_mini32_pca
-```
+| Topic | Uso |
+|-------|-----|
+| `rocrail/service/info/sg` | Comandi semafori |
+| `rocrail/service/command` | Comandi scambi |
+| `rocrail/service/client` | Feedback segnali |
 
-This enables `PCA9685Signal.h` (I2C addr 0x40) alongside the standard MUX channels.  
-See `include/PCA9685Signal.h` for wiring and usage.
+### Board (`railway/<hostname>/…`)
+
+| Topic | Payload |
+|-------|---------|
+| `command/set` | `{"accessory":"luci_sala","action":"on"}` |
+| `display/<id>/platform/status` | `in arrivo` |
+| `accessories/state` | JSON stato relè |
+| `sensors/state` | JSON occupazione MUX |
 
 ---
 
-## File Structure
+## Web UI
+
+`http://<hostname>.local/` — configurazione, dashboard SVG (segnali/scambi/binari), test manuale.
+
+---
+
+## Documentazione
+
+| File | Contenuto |
+|------|-----------|
+| [docs/PIANO.md](docs/PIANO.md) | Roadmap fasi 0–9 |
+| [docs/DISPLAY.md](docs/DISPLAY.md) | Binario e tabellone OLED |
+| [docs/CABLING.md](docs/CABLING.md) | Cablaggio plastico H0 |
+
+---
+
+## File structure
 
 ```
-ShieldH0/
-├── platformio.ini
-├── include/
-│   ├── Config.h            pin defs, Rocrail topics, enums
-│   ├── ConfigManager.h     LittleFS load/save, BoardConfig struct
-│   ├── MuxDriver.h         CD74HC4067 channel select + read/write
-│   ├── ChannelObjects.h    IChannel hierarchy (Sensor, Relay, SignalRGB, Marmotta, SerialRGB)
-│   ├── TurnoutChannel.h    MUX-based timed relay turnout driver
-│   ├── RocrailProtocol.h   XML parser, signal/turnout/sensor dispatcher
-│   ├── MQTTManager.h       PubSubClient wrapper, LWT, mDNS broker resolution
-│   ├── WebConfig.h         REST API + live status + test handler
-│   ├── OTAManager.h        ArduinoOTA wrapper
-│   ├── ToFManager.h        VL6180X polling + MQTT publish
-│   └── PCA9685Signal.h     Optional PWM signal driver (USE_PCA9685)
-├── src/
-│   └── main.cpp            setup/loop, object factories, MQTT callbacks
-└── data/
-    ├── config.json         default config (uploaded to LittleFS)
-    └── index.html          single-page config + dashboard UI
+include/
+  ConfigManager.h      Config + load/save
+  RocrailProtocol.h    XML MQTT segnali/scambi
+  DisplayManager.h     OLED SH1106 (USE_DISPLAY)
+  AccessoryManager.h   Relè profilati
+  ScenarioManager.h    Automazioni sensore→output
+  PCA9685Signal.h      PWM segnali (USE_PCA9685)
+src/main.cpp
+data/index.html        Web UI
+data/config.json       Default LittleFS
 ```

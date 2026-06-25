@@ -14,6 +14,8 @@ class HardwareProbe {
 public:
     bool vl6180x  = false;
     bool pca9685  = false;   // reserved for optional PWM board @ 0x40
+    bool oled3c   = false;   // SH1106/SSD1306 @ 0x3C
+    bool oled3d   = false;   // second OLED @ 0x3D
 
     void scanI2C() {
         Wire.begin(I2C_SDA, I2C_SCL);
@@ -27,6 +29,8 @@ public:
                 found++;
                 if (addr == VL6180X_ADDR) vl6180x = true;
                 if (addr == 0x40)           pca9685 = true;
+                if (addr == 0x3C)           oled3c  = true;
+                if (addr == 0x3D)           oled3d  = true;
             }
         }
         if (found == 0) {

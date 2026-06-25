@@ -17,6 +17,14 @@
 #include "HardwareProbe.h"
 #include "WifiSetup.h"
 #include "LiveStatus.h"
+#include "DisplayManager.h"
+#include "AccessoryManager.h"
+#include "ScenarioManager.h"
+
+#ifdef USE_PCA9685
+#include "PCA9685Signal.h"
+#include <Adafruit_PWMServoDriver.h>
+#endif
 
 // ── Globals ──────────────────────────────────────────────────────────
 ConfigManager cfgMgr;
@@ -26,7 +34,16 @@ WebConfig     webConfig;
 OTAManager    ota;
 VL6180X       tof;
 ToFManager    tofMgr;
+DisplayManager displayMgr;
+AccessoryManager accessoryMgr;
+ScenarioManager  scenarioMgr;
 bool          tofPresent = false;
+
+#ifdef USE_PCA9685
+Adafruit_PWMServoDriver pca9685(0x40);
+std::vector<std::unique_ptr<PCA9685Signal>> pcaSignals;
+bool          pcaPresent = false;
+#endif
 
 // Channel pools
 std::vector<std::unique_ptr<IChannel>> channels;
@@ -104,8 +121,22 @@ void setup() {
         Serial.println("[HW] VL6180X initialized");
     }
     if (hw.pca9685) {
+#ifdef USE_PCA9685
+        pca9685.begin();
+        pca9685.setPWMFreq(200);
+        pcaPresent = true;
+        Serial.println("[HW] PCA9685 initialized @ 0x40");
+#else
         Serial.println("[HW] PCA9685 detected (build with -e wemos_d1_mini32_pca to use)");
+#endif
     }
+    if (hw.oled3c || hw.oled3d) {
+        Serial.printf("[HW] OLED detected @ %s%s\n",
+                      hw.oled3c ? "0x3C " : "",
+                      hw.oled3d ? "0x3D" : "");
+    }
+
+    displayMgr.begin(cfgMgr, hw);
 
     const uint8_t muxUsed = countConfiguredMuxChannels();
     if (muxUsed > 0) {
@@ -122,11 +153,15 @@ void setup() {
     buildRocrailObjects();
     rocrail.setLiveStatus(&liveStatus);
 
+    accessoryMgr.begin(cfgMgr, mux, relays, channels);
+    scenarioMgr.begin(cfgMgr);
+
     // ── Phase 4: MQTT ────────────────────────────────────────────────
     mqtt.begin(cfgMgr, onMqttCommand, [&]() {
         // Subscribe to Rocrail topics every time MQTT (re)connects
         mqtt.subscribe(ROCRAIL_TOPIC_SG_CMD);
         mqtt.subscribe(ROCRAIL_TOPIC_SW_CMD);
+        displayMgr.subscribeAll(mqtt);
         Serial.printf("[MQTT] Subscribed to Rocrail topics\n");
         rocrail.publishOnline(mqtt, cfgMgr.cfg.hostname);
     });
@@ -138,7 +173,6 @@ void setup() {
         liveStatus.tof.present = false;
     }
 
-    // ── Phase 5: Web config UI ────────────────────────────────────────
     webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
                                              const String& cmd, const String& extra) {
         // Manual test from web UI → inject as MQTT command
@@ -148,15 +182,23 @@ void setup() {
         } else if (type == "turnout") {
             String xml = "<sw id=\"" + id + "\" cmd=\"" + cmd + "\" addr1=\"0\"/>";
             rocrail.handle(ROCRAIL_TOPIC_SW_CMD, xml, mqtt, mux);
+        } else if (type == "accessory") {
+            accessoryMgr.handleCommand(id, cmd);
+            accessoryMgr.publishState(mqtt);
         }
-    });
+    }, &displayMgr);
 
     Serial.println("==== Boot complete ====\n");
     Serial.printf("==== Apri: http://%s/  oppure  http://%s.local/ ====\n",
                   WiFi.localIP().toString().c_str(), cfgMgr.cfg.hostname);
-    Serial.printf("[SUM] MUX:%u ch | I2C:%s | MQTT:%s | Web:OK\n",
+    Serial.printf("[SUM] MUX:%u ch | I2C:%s%s | MQTT:%s | Web:OK\n",
                   muxUsed,
-                  tofPresent ? "VL6180X" : "empty",
+                  tofPresent ? "VL6180X" : "",
+#ifdef USE_PCA9685
+                  pcaPresent ? "+PCA9685" : "",
+#else
+                  "",
+#endif
                   mqtt.isEnabled() ? "on" : "off (configura broker)");
     Serial.println();
 }
@@ -168,6 +210,7 @@ void loop() {
     webConfig.loop();
     mqtt.loop();
     if (tofPresent) tofMgr.loop();
+    displayMgr.loop();
 
     if (millis() - lastScanMs >= SENSOR_POLL_MS) {
         lastScanMs = millis();
@@ -182,6 +225,8 @@ void loop() {
     // Turnout pulse watchdog (cut coil power after pulseDurationMs)
     rocrail.update(mux);
     rocrail.syncLiveStatus();
+    accessoryMgr.loop();
+    accessoryMgr.syncLiveStatus(liveStatus);
 
     liveStatus.mqttConnected = mqtt.connected();
     liveStatus.rssi          = (int8_t)WiFi.RSSI();
@@ -198,20 +243,39 @@ void loop() {
             }
         }
     }
+
+    scenarioMgr.evaluate(liveStatus, accessoryMgr, displayMgr, mqtt);
+    scenarioMgr.syncLiveStatus(liveStatus);
 }
 
 // ── Phase 3b: build Rocrail signal and turnout objects ───────────────
 void buildRocrailObjects() {
     turnouts.clear();
+#ifdef USE_PCA9685
+    pcaSignals.clear();
+#endif
 
-    // Signals: each uses a SignalRGBChannel already in the channels pool
-    // (they must have been mapped as SIGNAL_RGB in the pin_map).
-    // We look them up by chR channel index.
     for (uint8_t i = 0; i < cfgMgr.cfg.numSignals; i++) {
         const SignalConfig& sc = cfgMgr.cfg.signals[i];
         if (sc.id[0] == '\0') continue;
 
-        // Look up existing SignalRGBChannel by chR, or auto-create
+        const SignalType sigType = static_cast<SignalType>(sc.type);
+
+#ifdef USE_PCA9685
+        if (sc.usePca) {
+            if (!pcaPresent) {
+                Serial.printf("[ROCR] Signal '%s': use_pca set but PCA9685 missing\n", sc.id);
+                continue;
+            }
+            auto* ps = new PCA9685Signal(sc.id, sigType, &pca9685, sc.chR, sc.chG, sc.chV);
+            pcaSignals.emplace_back(ps);
+            rocrail.registerPcaSignal(sc.id, sigType, ps);
+            Serial.printf("[ROCR] Signal '%s' type=%u → PCA9685 ch %u/%u/%u\n",
+                          sc.id, sc.type, sc.chR, sc.chG, sc.chV);
+            continue;
+        }
+#endif
+
         SignalRGBChannel* found = nullptr;
         auto sigIt = signalChannels.find(sc.chR);
         if (sigIt != signalChannels.end()) {
@@ -225,7 +289,7 @@ void buildRocrailObjects() {
                           sc.id, sc.chR, sc.chG, sc.chV);
         }
 
-        rocrail.registerSignal(sc.id, static_cast<SignalType>(sc.type), found);
+        rocrail.registerSignal(sc.id, sigType, found);
         Serial.printf("[ROCR] Signal '%s' type=%u → MUX ch %u/%u/%u\n",
                       sc.id, sc.type, sc.chR, sc.chG, sc.chV);
     }
@@ -264,6 +328,10 @@ void buildRocrailObjects() {
     Serial.printf("[ROCR] %u signals, %u turnouts, %u sensor-rb, %u tof-blocks registered\n",
                   cfgMgr.cfg.numSignals, cfgMgr.cfg.numTurnouts,
                   cfgMgr.cfg.numSensorsRb, cfgMgr.cfg.numTofBlocks);
+
+    rocrail.applyBootAspects(cfgMgr.cfg.bootAspectMain, cfgMgr.cfg.bootAspectShunt);
+    Serial.printf("[ROCR] Boot aspects: MAIN=%s SHUNT=%s\n",
+                  cfgMgr.cfg.bootAspectMain, cfgMgr.cfg.bootAspectShunt);
 }
 
 // ── Phase 3: populate channel objects from config ────────────────────
@@ -370,6 +438,8 @@ void publishSensorStates() {
 void onMqttCommand(const String& topic, const String& payload) {
     Serial.printf("[MQTT] ← %s : %s\n", topic.c_str(), payload.c_str());
 
+    if (displayMgr.handleMqtt(topic, payload)) return;
+
     // Delegate Rocrail XML topics
     if (rocrail.hasTopic(topic)) {
         rocrail.handle(topic, payload, mqtt, mux);
@@ -379,6 +449,11 @@ void onMqttCommand(const String& topic, const String& payload) {
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
         Serial.println("[MQTT] Bad JSON");
+        return;
+    }
+
+    if (accessoryMgr.handleMqttJson(doc)) {
+        accessoryMgr.publishState(mqtt);
         return;
     }
 
@@ -491,7 +566,7 @@ uint8_t countConfiguredMuxChannels() {
 
     for (uint8_t i = 0; i < cfgMgr.cfg.numSignals; i++) {
         const SignalConfig& s = cfgMgr.cfg.signals[i];
-        if (s.id[0] == '\0') continue;
+        if (s.id[0] == '\0' || s.usePca) continue;
         if (s.chR < MUX_CHANNELS) used[s.chR] = true;
         if (s.chG < MUX_CHANNELS) used[s.chG] = true;
         if (s.chV < MUX_CHANNELS) used[s.chV] = true;
@@ -505,6 +580,12 @@ uint8_t countConfiguredMuxChannels() {
     for (uint8_t i = 0; i < cfgMgr.cfg.numSensorsRb; i++) {
         uint8_t c = cfgMgr.cfg.sensorsRb[i].muxCh;
         if (c < MUX_CHANNELS) used[c] = true;
+    }
+    for (uint8_t i = 0; i < cfgMgr.cfg.numAccessories; i++) {
+        const AccessoryConfig& a = cfgMgr.cfg.accessories[i];
+        if (a.id[0] == '\0') continue;
+        if (a.muxCh < MUX_CHANNELS) used[a.muxCh] = true;
+        if (a.muxChBar < MUX_CHANNELS) used[a.muxChBar] = true;
     }
 
     uint8_t n = 0;

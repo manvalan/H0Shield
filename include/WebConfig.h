@@ -10,6 +10,7 @@
 #include "WifiSetup.h"
 #include "SecureStore.h"
 #include "LiveStatus.h"
+#include "DisplayManager.h"
 
 class WebConfig {
 public:
@@ -17,10 +18,12 @@ public:
                                            const String& cmd, const String& extra)>;
 
     void begin(ConfigManager& cfgMgr, LiveStatus* live = nullptr,
-               TestHandler testHandler = nullptr) {
+               TestHandler testHandler = nullptr,
+               DisplayManager* displays = nullptr) {
         _cfg         = &cfgMgr;
         _live        = live;
         _testHandler = testHandler;
+        _displays    = displays;
 
         _server.on("/", HTTP_GET, [this]() { _serveIndex(); });
         _server.on("/api/cfg",    HTTP_GET,  [this]() { _handleGet(); });
@@ -49,6 +52,7 @@ private:
     ConfigManager* _cfg         = nullptr;
     LiveStatus*    _live        = nullptr;
     TestHandler    _testHandler;
+    DisplayManager* _displays   = nullptr;
     String         _authToken;
 
     bool _authRequired() const {
@@ -83,6 +87,8 @@ private:
         doc["sensor_threshold"] = _cfg->cfg.sensorThreshold;
         doc["tof_enabled"]      = _cfg->cfg.tofEnabled;
         doc["tof_threshold_mm"] = _cfg->cfg.tofThresholdMm;
+        doc["boot_aspect_main"]  = _cfg->cfg.bootAspectMain;
+        doc["boot_aspect_shunt"] = _cfg->cfg.bootAspectShunt;
         doc["mqtt_broker"] = _cfg->cfg.mqttBroker;
         doc["mqtt_port"]   = _cfg->cfg.mqttPort;
         doc["mqtt_user"]   = _cfg->cfg.mqttUser;
@@ -100,6 +106,7 @@ private:
             o["chR"]  = _cfg->cfg.signals[i].chR;
             o["chG"]  = _cfg->cfg.signals[i].chG;
             o["chV"]  = _cfg->cfg.signals[i].chV;
+            if (_cfg->cfg.signals[i].usePca) o["use_pca"] = true;
         }
 
         JsonArray swArr = doc["turnouts"].to<JsonArray>();
@@ -123,6 +130,62 @@ private:
             JsonObject o = tbArr.add<JsonObject>();
             o["rocrail_id"]   = _cfg->cfg.tofBlocks[i].rocrailId;
             o["threshold_mm"] = _cfg->cfg.tofBlocks[i].thresholdMm;
+        }
+
+        JsonArray dpArr = doc["displays"].to<JsonArray>();
+        for (uint8_t i = 0; i < _cfg->cfg.numDisplays; i++) {
+            const DisplayConfig& d = _cfg->cfg.displays[i];
+            JsonObject o = dpArr.add<JsonObject>();
+            o["id"]            = d.id;
+            o["type"]          = (d.type == DisplayType::TIMETABLE) ? "timetable" : "platform";
+            o["i2c_addr"]      = d.i2cAddr;
+            o["platform_num"]  = d.platformNum;
+            o["station_name"]  = d.stationName;
+            o["destination"]   = d.destination;
+            o["departure_time"]= d.departureTime;
+            o["status"]        = d.status;
+            JsonArray rows = o["rows"].to<JsonArray>();
+            for (uint8_t r = 0; r < d.numRows; r++) {
+                JsonObject ro = rows.add<JsonObject>();
+                ro["time"]        = d.rows[r].timeStr;
+                ro["destination"] = d.rows[r].destination;
+                ro["platform"]    = d.rows[r].platformBin;
+                ro["status"]      = d.rows[r].status;
+            }
+        }
+
+        JsonArray acArr = doc["accessories"].to<JsonArray>();
+        for (uint8_t i = 0; i < _cfg->cfg.numAccessories; i++) {
+            const AccessoryConfig& a = _cfg->cfg.accessories[i];
+            JsonObject o = acArr.add<JsonObject>();
+            o["id"]       = a.id;
+            o["profile"]  = ConfigManager::profileName(a.profile);
+            if (a.profile == AccessoryProfile::LEVEL_XING) {
+                o["mux_ch_lights"] = a.muxCh;
+                o["mux_ch_bar"]    = a.muxChBar;
+            } else {
+                o["mux_ch"] = a.muxCh;
+            }
+            o["pulse_ms"] = a.pulseMs;
+        }
+
+        JsonArray scArr = doc["scenarios"].to<JsonArray>();
+        for (uint8_t i = 0; i < _cfg->cfg.numScenarios; i++) {
+            const ScenarioConfig& s = _cfg->cfg.scenarios[i];
+            JsonObject o = scArr.add<JsonObject>();
+            o["id"] = s.id;
+            o["enabled"] = s.enabled;
+            if (s.muxCh != 255) o["mux_ch"] = s.muxCh;
+            o["tof_trigger"] = s.tofTrigger;
+            if (s.rocrailId[0]) o["rocrail_id"] = s.rocrailId;
+            if (s.accessoryPl[0])    o["accessory_pl"] = s.accessoryPl;
+            if (s.accessoryLight[0]) o["accessory_light"] = s.accessoryLight;
+            if (s.accessoryBell[0])  o["accessory_bell"] = s.accessoryBell;
+            if (s.displayId[0])      o["display_id"] = s.displayId;
+            o["status_occupied"] = s.statusOcc;
+            o["status_free"] = s.statusFree;
+            o["dest_occupied"] = s.destOcc;
+            o["dest_free"] = s.destFree;
         }
 
         String out;
@@ -157,6 +220,10 @@ private:
             _cfg->cfg.tofEnabled = doc["tof_enabled"];
         if (doc["tof_threshold_mm"].is<uint8_t>() || doc["tof_threshold_mm"].is<uint16_t>())
             _cfg->cfg.tofThresholdMm = doc["tof_threshold_mm"].as<uint8_t>();
+        if (doc["boot_aspect_main"].is<const char*>())
+            strlcpy(_cfg->cfg.bootAspectMain, doc["boot_aspect_main"], sizeof(_cfg->cfg.bootAspectMain));
+        if (doc["boot_aspect_shunt"].is<const char*>())
+            strlcpy(_cfg->cfg.bootAspectShunt, doc["boot_aspect_shunt"], sizeof(_cfg->cfg.bootAspectShunt));
         if (doc["mqtt_broker"].is<const char*>())
             strlcpy(_cfg->cfg.mqttBroker, doc["mqtt_broker"], sizeof(_cfg->cfg.mqttBroker));
         if (doc["mqtt_port"].is<uint16_t>())
@@ -181,6 +248,7 @@ private:
             s.chR  = sg["chR"]  | 0;
             s.chG  = sg["chG"]  | 1;
             s.chV  = sg["chV"]  | 2;
+            s.usePca = sg["use_pca"] | false;
         }
 
         // Turnouts
@@ -209,6 +277,63 @@ private:
             ToFBlockConfig& t = _cfg->cfg.tofBlocks[_cfg->cfg.numTofBlocks++];
             strlcpy(t.rocrailId, tb["rocrail_id"] | "", sizeof(t.rocrailId));
             t.thresholdMm = tb["threshold_mm"] | 0;
+        }
+
+        _cfg->cfg.numDisplays = 0;
+        for (JsonObject dp : doc["displays"].as<JsonArray>()) {
+            if (_cfg->cfg.numDisplays >= BoardConfig::MAX_DISPLAYS) break;
+            DisplayConfig& d = _cfg->cfg.displays[_cfg->cfg.numDisplays++];
+            strlcpy(d.id, dp["id"] | "", sizeof(d.id));
+            const char* typeStr = dp["type"] | "platform";
+            d.type = (strcmp(typeStr, "timetable") == 0)
+                ? DisplayType::TIMETABLE : DisplayType::PLATFORM;
+            d.i2cAddr = static_cast<uint8_t>(dp["i2c_addr"] | 0x3C);
+            d.platformNum = dp["platform_num"] | 1;
+            strlcpy(d.stationName, dp["station_name"] | "Stazione H0", sizeof(d.stationName));
+            strlcpy(d.destination, dp["destination"] | "", sizeof(d.destination));
+            strlcpy(d.departureTime, dp["departure_time"] | "", sizeof(d.departureTime));
+            strlcpy(d.status, dp["status"] | "libero", sizeof(d.status));
+            d.numRows = 0;
+            for (JsonObject row : dp["rows"].as<JsonArray>()) {
+                if (d.numRows >= DisplayConfig::MAX_ROWS) break;
+                TimetableRowConfig& r = d.rows[d.numRows++];
+                strlcpy(r.timeStr, row["time"] | "", sizeof(r.timeStr));
+                const char* dest = row["destination"] | row["dest"] | "";
+                strlcpy(r.destination, dest, sizeof(r.destination));
+                const char* bin = row["platform"] | row["bin"] | "";
+                strlcpy(r.platformBin, bin, sizeof(r.platformBin));
+                strlcpy(r.status, row["status"] | "", sizeof(r.status));
+            }
+        }
+
+        _cfg->cfg.numAccessories = 0;
+        for (JsonObject ac : doc["accessories"].as<JsonArray>()) {
+            if (_cfg->cfg.numAccessories >= BoardConfig::MAX_ACCESSORIES) break;
+            AccessoryConfig& a = _cfg->cfg.accessories[_cfg->cfg.numAccessories++];
+            strlcpy(a.id, ac["id"] | "", sizeof(a.id));
+            a.profile = ConfigManager::parseProfile(ac["profile"] | "generic");
+            a.muxCh = ac["mux_ch"] | ac["mux_ch_lights"] | 0;
+            a.muxChBar = ac["mux_ch_bar"] | 0;
+            a.pulseMs = ac["pulse_ms"] | 300;
+        }
+
+        _cfg->cfg.numScenarios = 0;
+        for (JsonObject sc : doc["scenarios"].as<JsonArray>()) {
+            if (_cfg->cfg.numScenarios >= BoardConfig::MAX_SCENARIOS) break;
+            ScenarioConfig& s = _cfg->cfg.scenarios[_cfg->cfg.numScenarios++];
+            strlcpy(s.id, sc["id"] | "", sizeof(s.id));
+            s.enabled = sc["enabled"] | true;
+            s.muxCh = sc["mux_ch"].isNull() ? 255 : static_cast<uint8_t>(sc["mux_ch"].as<uint8_t>());
+            s.tofTrigger = sc["tof_trigger"] | false;
+            strlcpy(s.rocrailId, sc["rocrail_id"] | "", sizeof(s.rocrailId));
+            strlcpy(s.accessoryPl, sc["accessory_pl"] | "", sizeof(s.accessoryPl));
+            strlcpy(s.accessoryLight, sc["accessory_light"] | "", sizeof(s.accessoryLight));
+            strlcpy(s.accessoryBell, sc["accessory_bell"] | "", sizeof(s.accessoryBell));
+            strlcpy(s.displayId, sc["display_id"] | "", sizeof(s.displayId));
+            strlcpy(s.statusOcc, sc["status_occupied"] | "in arrivo", sizeof(s.statusOcc));
+            strlcpy(s.statusFree, sc["status_free"] | "libero", sizeof(s.statusFree));
+            strlcpy(s.destOcc, sc["dest_occupied"] | "", sizeof(s.destOcc));
+            strlcpy(s.destFree, sc["dest_free"] | "", sizeof(s.destFree));
         }
 
         // ── Channel conflict check ─────────────────────────────────────
@@ -246,6 +371,7 @@ private:
         // Signals (3 channels each)
         for (uint8_t i = 0; i < _cfg->cfg.numSignals; i++) {
             const SignalConfig& s = _cfg->cfg.signals[i];
+            if (s.usePca) continue;
             for (uint8_t ch : {s.chR, s.chG, s.chV}) {
                 String key = "ch" + String(ch);
                 if (assigned.count(key)) {
@@ -275,6 +401,19 @@ private:
                 return String("Sensore '") + sr.rocrailId + "' ch" + sr.muxCh + " in conflitto";
             }
             assigned[key] = String("sensor ") + sr.rocrailId;
+        }
+
+        for (uint8_t i = 0; i < _cfg->cfg.numAccessories; i++) {
+            const AccessoryConfig& a = _cfg->cfg.accessories[i];
+            if (a.id[0] == '\0') continue;
+            for (uint8_t ch : {a.muxCh, a.muxChBar}) {
+                if (ch >= MUX_CHANNELS) continue;
+                String key = "ch" + String(ch);
+                if (assigned.count(key)) {
+                    return String("Accessorio '") + a.id + "' ch" + ch + " in conflitto";
+                }
+                assigned[key] = String("accessory ") + a.id;
+            }
         }
 
         return "";
@@ -328,7 +467,28 @@ private:
                 o["position"] = tw.position;
                 o["busy"]     = tw.busy;
             }
+
+            JsonObject acc = doc["accessories"].to<JsonObject>();
+            for (auto& [id, ac] : _live->accessories) {
+                JsonObject o = acc[id].to<JsonObject>();
+                o["profile"] = ac.profile;
+                o["active"]  = ac.active;
+                o["lights"]  = ac.lights;
+                o["bar"]     = ac.bar;
+                o["mux_ch"]  = ac.muxCh;
+            }
+
+            JsonObject scn = doc["scenarios"].to<JsonObject>();
+            for (auto& [id, sc] : _live->scenarios) {
+                JsonObject o = scn[id].to<JsonObject>();
+                o["enabled"]   = sc.enabled;
+                o["active"]    = sc.active;
+                o["triggered"] = sc.triggered;
+                o["trigger"]   = sc.trigger;
+            }
         }
+
+        if (_displays) _displays->appendStatus(doc.as<JsonObject>());
 
         String out;
         serializeJson(doc, out);

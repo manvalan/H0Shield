@@ -36,6 +36,21 @@ struct TurnoutLive {
     bool   busy       = false;
 };
 
+struct AccessoryLive {
+    String profile;
+    bool   active  = false;
+    bool   lights  = false;
+    bool   bar     = false;
+    uint8_t muxCh  = 0;
+};
+
+struct ScenarioLive {
+    bool   enabled   = true;
+    bool   active    = false;
+    bool   triggered = false;
+    String trigger;
+};
+
 struct LiveStatus {
     bool   mqttConnected = false;
     int8_t rssi          = 0;
@@ -44,4 +59,6 @@ struct LiveStatus {
     ToFLive                       tof;
     std::map<String, SignalLive>  signals;
     std::map<String, TurnoutLive> turnouts;
+    std::map<String, AccessoryLive> accessories;
+    std::map<String, ScenarioLive>  scenarios;
 };

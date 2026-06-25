@@ -4,13 +4,6 @@
  *
  * Compile-time guard: only included when USE_PCA9685 is defined in
  * platformio.ini build_flags (-D USE_PCA9685).
- *
- * Matches the SignalBoard hardware layout: each signal uses 3 PCA9685
- * channels (pinR, pinG, pinV) with per-channel brightness (0–4095).
- *
- * The Rocrail ID mapping and aspect logic are identical to the
- * MUX-based SignalRGBChannel, allowing SignalBoard-style hardware
- * to coexist with ShieldH0's MUX channels on the same board.
  */
 #ifdef USE_PCA9685
 
@@ -20,11 +13,11 @@
 
 class PCA9685Signal {
 public:
-    String  rocrailId;
+    String     rocrailId;
     SignalType type;
 
-    // Per-channel brightness (0 = off, 4095 = full)
     uint16_t brR = 4095, brG = 4095, brV = 4095;
+    bool     lampR = false, lampG = false, lampV = false;
 
     PCA9685Signal(const String& id, SignalType t,
                   Adafruit_PWMServoDriver* pca,
@@ -35,9 +28,8 @@ public:
         : rocrailId(id), type(t), brR(brightnessR), brG(brightnessG), brV(brightnessV),
           _pca(pca), _pinR(pinR), _pinG(pinG), _pinV(pinV) {}
 
-    void begin() {
-        // Default to RED / STOP at startup
-        setAspect(type == SignalType::MAIN ? SignalAspect::RED : SignalAspect::STOP);
+    void begin(SignalAspect bootAsp) {
+        setAspect(bootAsp);
     }
 
     void setAspect(SignalAspect asp) {
@@ -51,15 +43,18 @@ public:
                 case SignalAspect::YELLOW:           g = brG; break;
                 default:                  r = brR; break;
             }
-        } else {  // SHUNT: R=A, G=B, V=C
+        } else {
             switch (asp) {
-                case SignalAspect::STOP:    g = brG; v = brV; break;  // B+C horizontal
-                case SignalAspect::GO:      r = brR; g = brG; break;  // A+B vertical
+                case SignalAspect::STOP:    g = brG; v = brV; break;
+                case SignalAspect::GO:      r = brR; g = brG; break;
                 case SignalAspect::OBLIQUE: r = brR;          v = brV; break;
                 default:                   g = brG; v = brV; break;
             }
         }
 
+        lampR = r > 0;
+        lampG = g > 0;
+        lampV = v > 0;
         _pca->setPWM(_pinR, 0, r);
         _pca->setPWM(_pinG, 0, g);
         _pca->setPWM(_pinV, 0, v);

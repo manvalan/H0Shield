@@ -127,6 +127,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <button class="tab active" data-tab="dash">Dashboard</button>
     <button class="tab" data-tab="rete">Rete</button>
     <button class="tab" data-tab="sens">Sensori</button>
+    <button class="tab" data-tab="disp">Display</button>
+    <button class="tab" data-tab="acc">Accessori</button>
+    <button class="tab" data-tab="scn">Scenari</button>
     <button class="tab" data-tab="sys">Sistema</button>
   </nav>
 </header>
@@ -144,7 +147,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <div class="section-head"><span>Binari &amp; occupazione</span><span id="cnt-bin" class="sec-badge">0</span></div>
     <div id="d-sens" class="empty">Nessun dato</div>
   </div>
-  <div class="dash-grid">
+    <div class="dash-grid">
     <div class="card">
       <div class="section-head"><span>Segnali</span><span id="cnt-sig" class="sec-badge">0</span></div>
       <div id="d-sig" class="empty">—</div>
@@ -153,6 +156,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div class="section-head"><span>Scambi</span><span id="cnt-sw" class="sec-badge">0</span></div>
       <div id="d-sw" class="empty">—</div>
     </div>
+  </div>
+  <div class="card">
+    <div class="section-head"><span>Accessori</span><span id="cnt-acc" class="sec-badge">0</span></div>
+    <div id="d-acc" class="empty">—</div>
+  </div>
+  <div class="card">
+    <div class="section-head"><span>Scenari attivi</span><span id="cnt-scn" class="sec-badge">0</span></div>
+    <div id="d-scn" class="empty">—</div>
   </div>
 </section>
 
@@ -214,6 +225,57 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   </div>
 </section>
 
+<!-- DISPLAY -->
+<section id="p-disp" class="panel">
+  <div class="card">
+    <div class="card-title">Display OLED I2C (128×64 SH1106)</div>
+    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
+      Due tipi: <strong>platform</strong> (cartello binario) e <strong>timetable</strong> (tabellone partenze).
+      Indirizzi tipici: 60 (0x3C) e 61 (0x3D). Firmware con U8g2: <code>wemos_d1_mini32_usb_display</code>.
+    </p>
+    <div id="disp-list"></div>
+    <button class="btn btn-o" onclick="addDisplay()">+ Display</button>
+  </div>
+  <div class="card">
+    <div class="card-title">Topic MQTT</div>
+    <p style="font-size:.72rem;color:var(--muted);line-height:1.5">
+      Binario: <code>railway/&lt;nome&gt;/display/&lt;id&gt;/platform/destination|time|status|num</code><br>
+      Tabellone: <code>…/timetable/station</code> e <code>…/timetable/row/N/time|dest|bin|status</code>
+    </p>
+  </div>
+</section>
+
+<!-- ACCESSORI -->
+<section id="p-acc" class="panel">
+  <div class="card">
+    <div class="card-title">Relè e profili</div>
+    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
+      Profili: <strong>generic</strong> · <strong>light</strong> (luci) · <strong>level_xing</strong> (PL lampeggio+sbarra) · <strong>bell</strong> (impulso) · <strong>gate</strong> (sbarra)
+    </p>
+    <div id="acc-list"></div>
+    <button class="btn btn-o" onclick="addAcc()">+ Accessorio</button>
+  </div>
+  <div class="card">
+    <div class="card-title">Comando MQTT</div>
+    <p style="font-size:.72rem;color:var(--muted);line-height:1.5">
+      <code>{"accessory":"luci_sala","action":"on"}</code> — azioni: on · off · toggle · ring (campana) · activate (PL)
+    </p>
+  </div>
+</section>
+
+<!-- SCENARI -->
+<section id="p-scn" class="panel">
+  <div class="card">
+    <div class="card-title">Automazioni sensore → output</div>
+    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
+      Quando un sensore diventa <strong>occupato</strong>, attiva PL/luci/display configurati.
+      Al <strong>libero</strong> ripristina lo stato iniziale.
+    </p>
+    <div id="scn-list"></div>
+    <button class="btn btn-o" onclick="addScn()">+ Scenario</button>
+  </div>
+</section>
+
 <!-- SISTEMA -->
 <section id="p-sys" class="panel">
   <div class="card">
@@ -231,6 +293,15 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   <div class="card">
     <div class="card-title">Altri canali MUX</div>
     <div class="mux-grid" id="mux-sys"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Aspect di avvio segnali</div>
+    <div class="row2">
+      <div class="field"><label>MAIN al boot</label>
+        <select id="boot-main"><option value="red">Rosso</option><option value="yellow">Giallo</option><option value="green">Verde</option></select></div>
+      <div class="field"><label>SHUNT al boot</label>
+        <select id="boot-shunt"><option value="stop">Stop</option><option value="go">Via</option><option value="oblique">Obliquo</option></select></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-title">Segnali Rocrail</div>
@@ -312,6 +383,11 @@ function populate(c){
   buildMux('mux-sys',c.pin_map||Array(16).fill(0),false);
   buildRb(c.sensors_rb||[]);
   buildTofRb(c.tof_blocks||[]);
+  buildDisplays(c.displays||[]);
+  buildAcc(c.accessories||[]);
+  buildScn(c.scenarios||[]);
+  const bm=c.boot_aspect_main||'red'; document.getElementById('boot-main').value=bm;
+  const bs=c.boot_aspect_shunt||'stop'; document.getElementById('boot-shunt').value=bs;
   buildSig(c.signals||[]);
   buildSw(c.turnouts||[]);
   loadWifiStatus();
@@ -405,16 +481,179 @@ function buildTofRb(a){document.getElementById('tof-rb-list').innerHTML=''; if(a
 function getTofRb(){return[...document.querySelectorAll('#tof-rb-list .dyn')].map(r=>({rocrail_id:r.querySelector('.tb-id').value.trim(),threshold_mm:+r.querySelector('.tb-th').value})).filter(x=>x.rocrail_id);}
 
 function addSig(d={}){const el=document.createElement('div');el.className='dyn sw';
-  el.innerHTML=`<input class="sg-id" placeholder="sg1" value="${d.id||''}"><select class="sg-t"><option value="0" ${!d.type?'selected':''}>MAIN</option><option value="1" ${d.type==1?'selected':''}>SHUNT</option></select><input class="sg-r" type="number" min="0" max="15" value="${d.chR||0}" title="R"><input class="sg-g" type="number" min="0" max="15" value="${d.chG||1}" title="G"><input class="sg-v" type="number" min="0" max="15" value="${d.chV||2}" title="V"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
+  el.innerHTML=`<input class="sg-id" placeholder="sg1" value="${d.id||''}"><select class="sg-t"><option value="0" ${!d.type?'selected':''}>MAIN</option><option value="1" ${d.type==1?'selected':''}>SHUNT</option></select><input class="sg-r" type="number" min="0" max="15" value="${d.chR||0}" title="R"><input class="sg-g" type="number" min="0" max="15" value="${d.chG||1}" title="G"><input class="sg-v" type="number" min="0" max="15" value="${d.chV||2}" title="V"><label style="display:flex;align-items:center;gap:4px;font-size:.7rem"><input class="sg-pca" type="checkbox" ${d.use_pca?'checked':''}>PCA</label><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
   document.getElementById('sig-list').appendChild(el);}
 function buildSig(a){document.getElementById('sig-list').innerHTML='';a.forEach(s=>addSig(s));}
-function getSig(){return[...document.querySelectorAll('#sig-list .dyn')].map(r=>({id:r.querySelector('.sg-id').value.trim(),type:+r.querySelector('.sg-t').value,chR:+r.querySelector('.sg-r').value,chG:+r.querySelector('.sg-g').value,chV:+r.querySelector('.sg-v').value})).filter(x=>x.id);}
+function getSig(){return[...document.querySelectorAll('#sig-list .dyn')].map(r=>({id:r.querySelector('.sg-id').value.trim(),type:+r.querySelector('.sg-t').value,chR:+r.querySelector('.sg-r').value,chG:+r.querySelector('.sg-g').value,chV:+r.querySelector('.sg-v').value,...(r.querySelector('.sg-pca').checked?{use_pca:true}:{})})).filter(x=>x.id);}
 
 function addSw(d={}){const el=document.createElement('div');el.className='dyn sw';
   el.innerHTML=`<input class="sw-id" placeholder="sw1" value="${d.id||''}"><input class="sw-s" type="number" min="0" max="15" value="${d.chS||0}"><input class="sw-d" type="number" min="0" max="15" value="${d.chD||1}"><input class="sw-p" type="number" min="50" max="2000" value="${d.pulse||300}"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
   document.getElementById('sw-list').appendChild(el);}
 function buildSw(a){document.getElementById('sw-list').innerHTML='';a.forEach(s=>addSw(s));}
 function getSw(){return[...document.querySelectorAll('#sw-list .dyn')].map(r=>({id:r.querySelector('.sw-id').value.trim(),chS:+r.querySelector('.sw-s').value,chD:+r.querySelector('.sw-d').value,pulse:+r.querySelector('.sw-p').value})).filter(x=>x.id);}
+
+function addDispRow(el,d={}){
+  const r=document.createElement('div'); r.className='dyn dp-row';
+  r.innerHTML=`<input class="dr-time" placeholder="14:30" value="${d.time||''}"><input class="dr-dest" placeholder="Destinazione" value="${d.destination||''}"><input class="dr-bin" placeholder="Bin" value="${d.platform||''}" style="width:3rem"><input class="dr-st" placeholder="stato" value="${d.status||''}"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
+  el.querySelector('.dp-rows').appendChild(r);
+}
+function toggleDispType(el){
+  const t=el.querySelector('.dp-type').value;
+  el.querySelector('.dp-platform').style.display=t==='platform'?'block':'none';
+  el.querySelector('.dp-timetable').style.display=t==='timetable'?'block':'none';
+}
+function addDisplay(d={}){
+  const el=document.createElement('div'); el.className='card dyn-disp';
+  const type=d.type||'platform';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID</label><input class="dp-id" placeholder="bin3" value="${d.id||''}"></div>
+      <div class="field"><label>Tipo</label><select class="dp-type"><option value="platform" ${type==='platform'?'selected':''}>Binario</option><option value="timetable" ${type==='timetable'?'selected':''}>Tabellone</option></select></div>
+    </div>
+    <div class="field"><label>Indirizzo I2C (dec)</label><input class="dp-addr" type="number" min="60" max="127" value="${d.i2c_addr||60}"></div>
+    <div class="dp-platform">
+      <div class="row2">
+        <div class="field"><label>N° binario</label><input class="dp-pnum" type="number" min="1" max="99" value="${d.platform_num||1}"></div>
+        <div class="field"><label>Ora partenza</label><input class="dp-time" placeholder="14:32" value="${d.departure_time||''}"></div>
+      </div>
+      <div class="field"><label>Destinazione</label><input class="dp-dest" placeholder="Milano Centrale" value="${d.destination||''}"></div>
+      <div class="field"><label>Stato</label><input class="dp-status" placeholder="libero" value="${d.status||'libero'}"></div>
+    </div>
+    <div class="dp-timetable">
+      <div class="field"><label>Nome stazione</label><input class="dp-station" value="${d.station_name||'Stazione H0'}"></div>
+      <div class="card-title" style="margin-top:8px">Partenze</div>
+      <div class="dp-rows"></div>
+      <button class="btn btn-o" type="button" onclick="addDispRow(this.closest('.dyn-disp'))">+ Riga</button>
+    </div>
+    <button class="btn btn-o" style="margin-top:10px" onclick="this.parentElement.remove()">Rimuovi display</button>`;
+  el.querySelector('.dp-type').onchange=()=>toggleDispType(el);
+  toggleDispType(el);
+  (d.rows||[{},{},{}]).forEach(r=>addDispRow(el,r));
+  document.getElementById('disp-list').appendChild(el);
+}
+function buildDisplays(a){document.getElementById('disp-list').innerHTML=''; if(a.length) a.forEach(x=>addDisplay(x));}
+function getDisplays(){
+  return[...document.querySelectorAll('#disp-list .dyn-disp')].map(el=>{
+    const type=el.querySelector('.dp-type').value;
+    const base={id:el.querySelector('.dp-id').value.trim(),type,i2c_addr:+el.querySelector('.dp-addr').value||60};
+    if(type==='platform') return{...base,
+      platform_num:+el.querySelector('.dp-pnum').value||1,
+      destination:el.querySelector('.dp-dest').value,
+      departure_time:el.querySelector('.dp-time').value,
+      status:el.querySelector('.dp-status').value||'libero'};
+    return{...base,station_name:el.querySelector('.dp-station').value,
+      rows:[...el.querySelectorAll('.dp-row')].map(r=>({
+        time:r.querySelector('.dr-time').value,destination:r.querySelector('.dr-dest').value,
+        platform:r.querySelector('.dr-bin').value,status:r.querySelector('.dr-st').value
+      })).filter(x=>x.time||x.destination)};
+  }).filter(x=>x.id);
+}
+
+function addScn(d={}){
+  const el=document.createElement('div'); el.className='card dyn-scn';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID scenario</label><input class="sc-id" placeholder="approccio_pl" value="${d.id||''}"></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+        <input class="sc-en" type="checkbox" ${d.enabled!==false?'checked':''}> Abilitato</label></div>
+    </div>
+    <div class="card-title">Trigger (uno solo)</div>
+    <div class="row2">
+      <div class="field"><label>Canale MUX sensore</label><input class="sc-mux" type="number" min="0" max="15" placeholder="255=off" value="${d.mux_ch!=null?d.mux_ch:''}"></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+        <input class="sc-tof" type="checkbox" ${d.tof_trigger?'checked':''}> Sensore ToF</label></div>
+    </div>
+    <div class="field"><label>ID blocco Rocrail (alternativo)</label><input class="sc-rb" placeholder="bk1" value="${d.rocrail_id||''}"></div>
+    <div class="card-title" style="margin-top:8px">Azioni occupato → libero</div>
+    <div class="row2">
+      <div class="field"><label>PL (accessory)</label><input class="sc-pl" placeholder="pl_nord" value="${d.accessory_pl||''}"></div>
+      <div class="field"><label>Luci</label><input class="sc-light" placeholder="luci_sala" value="${d.accessory_light||''}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Campana (occupato)</label><input class="sc-bell" placeholder="campana" value="${d.accessory_bell||''}"></div>
+      <div class="field"><label>Display binario</label><input class="sc-disp" placeholder="bin3" value="${d.display_id||''}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Stato occupato</label><input class="sc-st-occ" value="${d.status_occupied||'in arrivo'}"></div>
+      <div class="field"><label>Stato libero</label><input class="sc-st-free" value="${d.status_free||'libero'}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Destinazione occupato</label><input class="sc-d-occ" placeholder="Treno in transito" value="${d.dest_occupied||''}"></div>
+      <div class="field"><label>Destinazione libero</label><input class="sc-d-free" value="${d.dest_free||''}"></div>
+    </div>
+    <button class="btn btn-o" style="margin-top:10px" onclick="this.parentElement.remove()">Rimuovi</button>`;
+  document.getElementById('scn-list').appendChild(el);
+}
+function buildScn(a){document.getElementById('scn-list').innerHTML=''; if(a.length) a.forEach(x=>addScn(x));}
+function getScn(){
+  return[...document.querySelectorAll('#scn-list .dyn-scn')].map(el=>{
+    const mux=el.querySelector('.sc-mux').value;
+    return{
+      id:el.querySelector('.sc-id').value.trim(),
+      enabled:el.querySelector('.sc-en').checked,
+      ...(mux!==''?{mux_ch:+mux}:{}),
+      tof_trigger:el.querySelector('.sc-tof').checked,
+      rocrail_id:el.querySelector('.sc-rb').value.trim(),
+      accessory_pl:el.querySelector('.sc-pl').value.trim(),
+      accessory_light:el.querySelector('.sc-light').value.trim(),
+      accessory_bell:el.querySelector('.sc-bell').value.trim(),
+      display_id:el.querySelector('.sc-disp').value.trim(),
+      status_occupied:el.querySelector('.sc-st-occ').value,
+      status_free:el.querySelector('.sc-st-free').value,
+      dest_occupied:el.querySelector('.sc-d-occ').value,
+      dest_free:el.querySelector('.sc-d-free').value
+    };
+  }).filter(x=>x.id);
+}
+
+const ACC_PROFILES=[
+  {v:'generic',l:'Generico'},{v:'light',l:'Luci'},{v:'level_xing',l:'Passaggio a livello'},
+  {v:'bell',l:'Campana'},{v:'gate',l:'Sbarra'}
+];
+function toggleAccProfile(el){
+  const t=el.querySelector('.ac-profile').value;
+  el.querySelector('.ac-simple').style.display=t==='level_xing'?'none':'grid';
+  el.querySelector('.ac-pl').style.display=t==='level_xing'?'block':'none';
+}
+function addAcc(d={}){
+  const p=d.profile||'generic';
+  const opts=ACC_PROFILES.map(x=>`<option value="${x.v}" ${p===x.v?'selected':''}>${x.l}</option>`).join('');
+  const el=document.createElement('div'); el.className='card dyn-acc';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID</label><input class="ac-id" placeholder="luci_sala" value="${d.id||''}"></div>
+      <div class="field"><label>Profilo</label><select class="ac-profile">${opts}</select></div>
+    </div>
+    <div class="ac-simple dyn" style="grid-template-columns:1fr 1fr 80px 32px">
+      <input class="ac-ch" type="number" min="0" max="15" value="${d.mux_ch||0}" title="MUX ch">
+      <input class="ac-pulse" type="number" min="50" max="5000" value="${d.pulse_ms||300}" title="ms">
+      <span style="font-size:.7rem;color:var(--muted);align-self:center">impulso ms</span>
+      <span></span>
+    </div>
+    <div class="ac-pl" style="display:none">
+      <div class="row2">
+        <div class="field"><label>Ch luci</label><input class="ac-ch-l" type="number" min="0" max="15" value="${d.mux_ch_lights||d.mux_ch||0}"></div>
+        <div class="field"><label>Ch sbarra</label><input class="ac-ch-b" type="number" min="0" max="15" value="${d.mux_ch_bar||0}"></div>
+      </div>
+      <div class="field"><label>Periodo lampeggio (ms)</label><input class="ac-pulse-pl" type="number" min="100" max="2000" value="${d.pulse_ms||500}"></div>
+    </div>
+    <button class="btn btn-o" style="margin-top:10px" onclick="this.parentElement.remove()">Rimuovi</button>`;
+  el.querySelector('.ac-profile').onchange=()=>toggleAccProfile(el);
+  toggleAccProfile(el);
+  document.getElementById('acc-list').appendChild(el);
+}
+function buildAcc(a){document.getElementById('acc-list').innerHTML=''; if(a.length) a.forEach(x=>addAcc(x));}
+function getAcc(){
+  return[...document.querySelectorAll('#acc-list .dyn-acc')].map(el=>{
+    const profile=el.querySelector('.ac-profile').value;
+    const base={id:el.querySelector('.ac-id').value.trim(),profile};
+    if(profile==='level_xing') return{...base,
+      mux_ch_lights:+el.querySelector('.ac-ch-l').value||0,
+      mux_ch_bar:+el.querySelector('.ac-ch-b').value||0,
+      pulse_ms:+el.querySelector('.ac-pulse-pl').value||500};
+    return{...base,mux_ch:+el.querySelector('.ac-ch').value||0,pulse_ms:+el.querySelector('.ac-pulse').value||300};
+  }).filter(x=>x.id);
+}
 
 async function saveAll(){
   const body={
@@ -424,12 +663,15 @@ async function saveAll(){
     sensor_threshold:+document.getElementById('sensor-th').value,
     tof_enabled:document.getElementById('tof-en').checked,
     tof_threshold_mm:+document.getElementById('tof-th').value,
+    boot_aspect_main:document.getElementById('boot-main').value,
+    boot_aspect_shunt:document.getElementById('boot-shunt').value,
     mqtt_broker:document.getElementById('broker').value.trim(),
     mqtt_port:+document.getElementById('port').value||1883,
     mqtt_user:document.getElementById('mqtt-user').value.trim(),
     mqtt_pass:document.getElementById('mqtt-pass').value,
     pin_map:mergePinMaps(),
-    sensors_rb:getRb(), tof_blocks:getTofRb(), signals:getSig(), turnouts:getSw()
+    sensors_rb:getRb(), tof_blocks:getTofRb(), displays:getDisplays(),
+    accessories:getAcc(), scenarios:getScn(), signals:getSig(), turnouts:getSw()
   };
   const r=await fetch('/api/cfg',{method:'POST',headers:authHJson(),body:JSON.stringify(body)});
   if(r.ok){toast('Salvato – riavvio…');setTimeout(()=>location.reload(),5000);}
@@ -447,29 +689,71 @@ async function pollStatus(){
     document.getElementById('d-ip').textContent=s.ip||'—';
     document.getElementById('d-wifi').textContent=s.wifi_connected?(s.rssi+' dBm'):'AP';
     document.getElementById('d-heap').textContent=s.free_heap?Math.round(s.free_heap/1024)+' KB':'—';
-    updateDashSummary(s.sensors,s.tof,s.signals,s.turnouts);
+    updateDashSummary(s.sensors,s.tof,s.signals,s.turnouts,s.accessories,s.scenarios);
     renderSensors('d-sens',s.sensors,s.tof);
     renderSignals('d-sig',s.signals);
     renderTurnouts('d-sw',s.turnouts);
+    renderAccessories('d-acc',s.accessories);
+    renderScenarios('d-scn',s.scenarios,s.accessories,s.displays);
   }catch(e){}
 }
-function updateDashSummary(sensors,tof,signals,turnouts){
+function updateDashSummary(sensors,tof,signals,turnouts,accessories,scenarios){
   let tracks=0, occ=0;
   if(sensors) Object.values(sensors).forEach(v=>{tracks++;if(v.occupied)occ++});
   if(tof&&tof.present){tracks++;if(tof.occupied&&tof.valid)occ++}
   const sigN=signals?Object.keys(signals).length:0;
   const swN=turnouts?Object.keys(turnouts).length:0;
+  const accN=accessories?Object.keys(accessories).length:0;
+  const accOn=accessories?Object.values(accessories).filter(a=>a.active).length:0;
+  const scnN=scenarios?Object.keys(scenarios).length:0;
+  const scnOn=scenarios?Object.values(scenarios).filter(s=>s.active).length:0;
   const swBusy=turnouts?Object.values(turnouts).filter(t=>t.busy).length:0;
   document.getElementById('cnt-bin').textContent=tracks;
   document.getElementById('cnt-sig').textContent=sigN;
   document.getElementById('cnt-sw').textContent=swN;
+  document.getElementById('cnt-acc').textContent=accN;
+  document.getElementById('cnt-scn').textContent=scnN;
   const el=document.getElementById('dash-summary');
-  if(!tracks&&!sigN&&!swN){el.innerHTML='';return}
+  if(!tracks&&!sigN&&!swN&&!accN&&!scnN){el.innerHTML='';return}
   el.innerHTML=[
     tracks?`<span class="sum-pill ${occ?'warn':''}">${occ}/${tracks} binari occupati</span>`:'',
     sigN?`<span class="sum-pill">${sigN} segnali attivi</span>`:'',
-    swN?`<span class="sum-pill">${swN} scambi${swBusy?' · '+swBusy+' in movimento':''}</span>`:''
+    swN?`<span class="sum-pill">${swN} scambi${swBusy?' · '+swBusy+' in movimento':''}</span>`:'',
+    accN?`<span class="sum-pill ${accOn?'warn':''}">${accOn}/${accN} accessori ON</span>`:'',
+    scnN?`<span class="sum-pill ${scnOn?'warn':''}">${scnOn} scenari attivi</span>`:''
   ].filter(Boolean).join('');
+}
+function renderScenarios(id,scenarios,accessories,displays){
+  const el=document.getElementById(id); const e=scenarios?Object.entries(scenarios):[];
+  if(!e.length){el.innerHTML='<div class="empty">Nessuno scenario configurato</div>';return}
+  el.innerHTML=e.map(([sid,sc])=>{
+    const on=!!sc.active;
+    const trig=sc.trigger||'?';
+    return`<div class="track-row"><div class="track-head"><span class="track-id">${sid}</span><span class="chip ${on?'chip-busy':'chip-ok'}">${on?'ATTIVO':'in attesa'}</span></div><div style="font-size:.75rem;color:var(--muted)">Trigger: ${trig}${sc.triggered?' · occupato':''}</div><div class="rail-seg ${sc.triggered?'occ':'free'}"></div></div>`;
+  }).join('');
+}
+function accProfileLabel(p){
+  const m={generic:'Generico',light:'Luci',level_xing:'PL',bell:'Campana',gate:'Sbarra'};
+  return m[p]||p;
+}
+function renderAccessories(id,accessories){
+  const el=document.getElementById(id); const e=accessories?Object.entries(accessories):[];
+  if(!e.length){el.innerHTML='<div class="empty">Nessun accessorio configurato</div>';return}
+  el.innerHTML='<div class="sw-grid">'+e.map(([aid,ac])=>{
+    const on=!!ac.active;
+    const chip=on?(ac.profile==='level_xing'?'PL attivo':'ON'):'OFF';
+    const cls=on?'chip-busy':'chip-ok';
+    let btns=`<button onclick="testAcc('${aid}','on')">ON</button><button onclick="testAcc('${aid}','off')">OFF</button>`;
+    if(ac.profile==='bell') btns+=`<button onclick="testAcc('${aid}','ring')">🔔</button>`;
+    if(ac.profile==='level_xing') btns=`<button onclick="testAcc('${aid}','activate')">Chiudi</button><button onclick="testAcc('${aid}','deactivate')">Apri</button>`;
+    return`<div class="sw-card"><div style="font-size:2rem;line-height:1;margin-bottom:6px">${ac.profile==='bell'?'🔔':ac.profile==='light'?'💡':ac.profile==='level_xing'?'🚧':'⚡'}</div><h4>${aid}</h4><div class="sw-meta">${accProfileLabel(ac.profile)} · MUX ${ac.mux_ch||'—'}</div><span class="chip ${cls}">${chip}</span><div class="sig-test">${btns}</div></div>`;
+  }).join('')+'</div>';
+}
+async function testAcc(id,cmd){
+  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'accessory',id,cmd})});
+  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
+  if(r.ok){toast('Accessorio '+id+' → '+cmd);pollStatus();}
+  else toast('Test fallito');
 }
 function svgTurnout(pos,busy){
   const st=pos==='straight', dv=pos==='turnout';
