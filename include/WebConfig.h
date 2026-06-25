@@ -7,6 +7,8 @@
 #include <map>
 #include <functional>
 #include "ConfigManager.h"
+#include "WifiSetup.h"
+#include "SecureStore.h"
 
 /**
  * Lightweight configuration web server (port 80).
@@ -46,6 +48,12 @@ public:
         _server.on("/api/cfg",    HTTP_POST, [this]() { _handlePost(); });
         _server.on("/api/status", HTTP_GET,  [this]() { _handleStatus(); });
         _server.on("/api/test",   HTTP_POST, [this]() { _handleTest(); });
+        _server.on("/api/wifi/status", HTTP_GET,  [this]() { _handleWifiStatus(); });
+        _server.on("/api/wifi/scan",   HTTP_GET,  [this]() { _handleWifiScan(); });
+        _server.on("/api/wifi/connect", HTTP_POST, [this]() { _handleWifiConnect(); });
+        _server.on("/api/wifi/reset",  HTTP_POST, [this]() { _handleWifiReset(); });
+        _server.on("/api/auth/login",  HTTP_POST, [this]() { _handleAuthLogin(); });
+        _server.on("/api/auth/check",  HTTP_GET,  [this]() { _handleAuthCheck(); });
         _server.onNotFound([this]() {
             _server.send(404, "text/plain", "Not found");
         });
@@ -62,6 +70,20 @@ private:
     ConfigManager* _cfg         = nullptr;
     LiveStatus*    _live        = nullptr;
     TestHandler    _testHandler;
+    String         _authToken;
+
+    bool _authRequired() const {
+        return _cfg->cfg.webPassHash[0] != '\0';
+    }
+
+    bool _checkAuth() {
+        if (!_authRequired()) return true;
+        return _server.header("X-Auth-Token") == _authToken;
+    }
+
+    void _send401() {
+        _server.send(401, "application/json", "{\"error\":\"auth_required\"}");
+    }
 
     void _serveIndex() {
         File f = LittleFS.open("/index.html", "r");
@@ -76,6 +98,10 @@ private:
     void _handleGet() {
         JsonDocument doc;
         doc["hostname"]    = _cfg->cfg.hostname;
+        doc["wifi_ssid"]   = _cfg->cfg.wifiSsid;
+        doc["web_user"]    = _cfg->cfg.webUser;
+        doc["has_web_pass"]= _authRequired();
+        doc["sensor_threshold"] = _cfg->cfg.sensorThreshold;
         doc["mqtt_broker"] = _cfg->cfg.mqttBroker;
         doc["mqtt_port"]   = _cfg->cfg.mqttPort;
         doc["mqtt_user"]   = _cfg->cfg.mqttUser;
@@ -117,6 +143,7 @@ private:
     }
 
     void _handlePost() {
+        if (!_checkAuth()) { _send401(); return; }
         if (!_server.hasArg("plain")) {
             _server.send(400, "text/plain", "No body");
             return;
@@ -129,15 +156,23 @@ private:
         }
 
         if (doc["hostname"].is<const char*>())
-            strlcpy(_cfg->cfg.hostname,   doc["hostname"],    sizeof(_cfg->cfg.hostname));
+            strlcpy(_cfg->cfg.hostname, doc["hostname"], sizeof(_cfg->cfg.hostname));
+        if (doc["web_user"].is<const char*>())
+            strlcpy(_cfg->cfg.webUser, doc["web_user"], sizeof(_cfg->cfg.webUser));
+        if (doc["web_pass"].is<const char*>() && doc["web_pass"].as<String>().length() > 0) {
+            String h = SecureStore::hashPassword(doc["web_pass"].as<String>());
+            strlcpy(_cfg->cfg.webPassHash, h.c_str(), sizeof(_cfg->cfg.webPassHash));
+        }
+        if (doc["sensor_threshold"].is<uint16_t>())
+            _cfg->cfg.sensorThreshold = doc["sensor_threshold"];
         if (doc["mqtt_broker"].is<const char*>())
             strlcpy(_cfg->cfg.mqttBroker, doc["mqtt_broker"], sizeof(_cfg->cfg.mqttBroker));
         if (doc["mqtt_port"].is<uint16_t>())
             _cfg->cfg.mqttPort = doc["mqtt_port"];
         if (doc["mqtt_user"].is<const char*>())
             strlcpy(_cfg->cfg.mqttUser, doc["mqtt_user"], sizeof(_cfg->cfg.mqttUser));
-        if (doc["mqtt_pass"].is<const char*>())
-            strlcpy(_cfg->cfg.mqttPass, doc["mqtt_pass"], sizeof(_cfg->cfg.mqttPass));
+        if (doc["mqtt_pass"].is<const char*>() && doc["mqtt_pass"].as<String>().length() > 0)
+            SecureStore::saveMqttPassword(doc["mqtt_pass"].as<String>());
 
         JsonArray pmArr = doc["pin_map"].as<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS && i < (uint8_t)pmArr.size(); i++) {
@@ -253,6 +288,9 @@ private:
         doc["mqtt"]          = _live ? _live->mqttConnected : false;
         doc["hostname"]      = _cfg->cfg.hostname;
         doc["free_heap"]     = ESP.getFreeHeap();
+        doc["wifi_ssid"]     = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : _cfg->cfg.wifiSsid;
+        doc["wifi_connected"]= WiFi.status() == WL_CONNECTED;
+        doc["ap_mode"]       = WiFi.getMode() & WIFI_AP;
 
         if (_live) {
             JsonObject sens = doc["sensors"].to<JsonObject>();
@@ -290,5 +328,99 @@ private:
         String extra = doc["extra"] | "";
         _testHandler(type, id, cmd, extra);
         _server.send(200, "application/json", "{\"ok\":true}");
+    }
+
+    void _handleWifiStatus() {
+        JsonDocument doc;
+        doc["connected"]  = WiFi.status() == WL_CONNECTED;
+        doc["ssid"]       = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : _cfg->cfg.wifiSsid;
+        doc["ip"]           = WiFi.localIP().toString();
+        doc["ap_ip"]        = WiFi.softAPIP().toString();
+        doc["rssi"]         = WiFi.RSSI();
+        doc["saved_ssid"]   = _cfg->cfg.wifiSsid;
+        String out;
+        serializeJson(doc, out);
+        _server.send(200, "application/json", out);
+    }
+
+    void _handleWifiScan() {
+        int n = WiFi.scanNetworks(false, true);
+        JsonDocument doc;
+        JsonArray arr = doc["networks"].to<JsonArray>();
+        for (int i = 0; i < n; i++) {
+            JsonObject o = arr.add<JsonObject>();
+            o["ssid"]  = WiFi.SSID(i);
+            o["rssi"]  = WiFi.RSSI(i);
+            o["secure"]= WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+            o["ch"]    = WiFi.channel(i);
+        }
+        doc["count"] = n;
+        String out;
+        serializeJson(doc, out);
+        _server.send(200, "application/json", out);
+    }
+
+    void _handleWifiConnect() {
+        if (!_server.hasArg("plain")) {
+            _server.send(400, "text/plain", "No body");
+            return;
+        }
+        JsonDocument doc;
+        if (deserializeJson(doc, _server.arg("plain"))) {
+            _server.send(400, "text/plain", "Bad JSON");
+            return;
+        }
+        String ssid = doc["ssid"] | "";
+        String pass = doc["password"] | "";
+        if (ssid.isEmpty()) {
+            _server.send(400, "application/json", "{\"error\":\"ssid_required\"}");
+            return;
+        }
+        const bool ok = connectToNetwork(*_cfg, ssid, pass);
+        if (ok) {
+            _server.send(200, "application/json",
+                "{\"ok\":true,\"ip\":\"" + WiFi.localIP().toString() + "\"}");
+        } else {
+            _server.send(502, "application/json", "{\"error\":\"connection_failed\"}");
+        }
+    }
+
+    void _handleAuthCheck() {
+        if (!_authRequired()) {
+            _server.send(200, "application/json", "{\"ok\":true}");
+            return;
+        }
+        if (_checkAuth())
+            _server.send(200, "application/json", "{\"ok\":true}");
+        else
+            _server.send(401, "application/json", "{\"ok\":false}");
+    }
+
+    void _handleAuthLogin() {
+        if (!_server.hasArg("plain")) {
+            _server.send(400, "text/plain", "No body");
+            return;
+        }
+        JsonDocument doc;
+        deserializeJson(doc, _server.arg("plain"));
+        String user = doc["user"] | "";
+        String pass = doc["pass"] | "";
+
+        if (user != _cfg->cfg.webUser ||
+            !SecureStore::verifyPassword(pass, _cfg->cfg.webPassHash)) {
+            _server.send(401, "application/json", "{\"error\":\"invalid_credentials\"}");
+            return;
+        }
+        _authToken = SecureStore::hashPassword(user + ":" + pass + ":session");
+        _server.send(200, "application/json",
+                      "{\"ok\":true,\"token\":\"" + _authToken + "\"}");
+    }
+
+    void _handleWifiReset() {
+        if (_authRequired() && !_checkAuth()) { _send401(); return; }
+        _server.send(200, "application/json",
+                     "{\"ok\":true,\"message\":\"Riavvio in modalità setup WiFi\"}");
+        delay(300);
+        resetWifiAndRestart();
     }
 };

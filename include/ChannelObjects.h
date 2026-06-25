@@ -16,7 +16,8 @@ public:
 // ── Absorption / occupancy sensor ───────────────────────────────────
 class SensorChannel : public IChannel {
 public:
-    static constexpr uint16_t THRESHOLD = 512;   // tune per layout
+    static constexpr uint16_t DEFAULT_THRESHOLD = 512;
+    uint16_t threshold = DEFAULT_THRESHOLD;
 
     uint16_t rawValue   = 0;
     bool     occupied   = false;
@@ -27,7 +28,7 @@ public:
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, INPUT);
         rawValue = mux.readAnalog();
-        occupied = rawValue > THRESHOLD;
+        occupied = rawValue > threshold;
     }
 };
 
@@ -91,49 +92,54 @@ public:
     CRGB*   leds    = nullptr;
     uint8_t numLeds = WS2812_MAX_LEDS;
     uint8_t gpio    = 0;
+    bool    enabled = false;
 
     explicit SerialRGBChannel(uint8_t muxCh) : IChannel(muxCh) {
-        // Resolve GPIO from map
         for (uint8_t i = 0; i < WS2812_MAP_SIZE; i++) {
             if (WS2812_GPIO_MAP[i][0] == muxCh) {
                 gpio = WS2812_GPIO_MAP[i][1];
                 break;
             }
         }
+        if (gpio == 0) {
+            Serial.printf("[RGB] Ch%u: no GPIO mapping – strip skipped\n", muxCh);
+            return;
+        }
+        enabled = true;
         leds = new CRGB[numLeds];
     }
 
     ~SerialRGBChannel() override { delete[] leds; }
 
-    // FastLED requires a compile-time pin; we use addLeds<> with a runtime
-    // workaround via the dynamic controller approach.
-    // Call begin() once after construction.
     void begin() {
-        // Register the strip. FastLED doesn't support full runtime pin selection,
-        // so we add the controller manually. This covers the four defined GPIOs.
+        if (!enabled || !leds) return;
         switch (gpio) {
             case  4: FastLED.addLeds<WS2812B, 4,  GRB>(leds, numLeds); break;
             case  5: FastLED.addLeds<WS2812B, 5,  GRB>(leds, numLeds); break;
             case 18: FastLED.addLeds<WS2812B, 18, GRB>(leds, numLeds); break;
             case 19: FastLED.addLeds<WS2812B, 19, GRB>(leds, numLeds); break;
             default:
-                Serial.printf("[RGB] No FastLED GPIO mapping for GPIO %u\n", gpio);
+                enabled = false;
+                Serial.printf("[RGB] GPIO %u unsupported – strip disabled\n", gpio);
+                return;
         }
         fill_solid(leds, numLeds, CRGB::Black);
         FastLED.show();
     }
 
     void setAll(CRGB color) {
+        if (!enabled || !leds) return;
         fill_solid(leds, numLeds, color);
         FastLED.show();
     }
 
     void setPixel(uint8_t idx, CRGB color) {
-        if (idx < numLeds) leds[idx] = color;
+        if (!enabled || !leds || idx >= numLeds) return;
+        leds[idx] = color;
         FastLED.show();
     }
 
-    void update(MuxDriver&) override {}   // driven by MQTT commands, not polled
+    void update(MuxDriver&) override {}
 };
 
 // ── Marmotta (audio trigger – single pulse) ──────────────────────────

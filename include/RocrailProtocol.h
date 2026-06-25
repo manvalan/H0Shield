@@ -6,6 +6,7 @@
 #include "ChannelObjects.h"
 #include "TurnoutChannel.h"
 #include "MQTTManager.h"
+#include "WebConfig.h"
 
 /**
  * Rocrail MQTT protocol adapter.
@@ -39,6 +40,8 @@ public:
     void registerSensorRb(const String& rocrailId, uint8_t muxCh) {
         _sensorsRb[muxCh] = rocrailId;
     }
+
+    void setLiveStatus(LiveStatus* live) { _live = live; }
 
     // ── Call once after MQTT is connected ────────────────────────────
     void publishOnline(MQTTManager& mqtt, const String& boardName) {
@@ -92,7 +95,8 @@ private:
 
     std::map<String, SignalEntry>     _signals;
     std::map<String, TurnoutChannel*> _turnouts;
-    std::map<uint8_t, String>         _sensorsRb;   // muxCh → rocrailId
+    std::map<uint8_t, String>         _sensorsRb;
+    LiveStatus*                       _live = nullptr;
 
     // ── XML helpers ───────────────────────────────────────────────────
     static String _attr(const String& xml, const String& name) {
@@ -130,6 +134,8 @@ private:
         mqtt.publishRaw(ROCRAIL_TOPIC_SG_FB, fb, false);
 
         Serial.printf("[ROCR] Signal %s → %s\n", id.c_str(), aspect.c_str());
+
+        if (_live) _live->signalStates[id] = aspect;
     }
 
     // ── Turnout handler ───────────────────────────────────────────────

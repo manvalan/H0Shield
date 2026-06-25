@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiManager.h>
 #include <ESPmDNS.h>
 #include <Wire.h>
 #include <VL6180X.h>
@@ -15,6 +14,8 @@
 #include "ToFManager.h"
 #include "TurnoutChannel.h"
 #include "RocrailProtocol.h"
+#include "HardwareProbe.h"
+#include "WifiSetup.h"
 
 // ── Globals ──────────────────────────────────────────────────────────
 ConfigManager cfgMgr;
@@ -24,6 +25,7 @@ WebConfig     webConfig;
 OTAManager    ota;
 VL6180X       tof;
 ToFManager    tofMgr;
+bool          tofPresent = false;
 
 // Channel pools
 std::vector<std::unique_ptr<IChannel>> channels;
@@ -51,6 +53,8 @@ void buildRocrailObjects();
 void onMqttCommand(const String& topic, const String& payload);
 void publishSensorStates();
 void checkResetButton();
+SensorChannel* ensureSensorChannel(uint8_t ch);
+uint8_t countConfiguredMuxChannels();
 
 // ─────────────────────────────────────────────────────────────────────
 void setup() {
@@ -64,44 +68,19 @@ void setup() {
     if (!cfgMgr.begin()) {
         Serial.println("[BOOT] Config load failed – using defaults");
     }
+    {
+        String mp = SecureStore::loadMqttPassword();
+        if (mp.length()) strlcpy(cfgMgr.cfg.mqttPass, mp.c_str(), sizeof(cfgMgr.cfg.mqttPass));
+    }
 
-    // ── Phase 1: WiFi portal ──────────────────────────────────────────
-    WiFiManager wm;
-    wm.setTimeout(WIFI_PORTAL_TIMEOUT);
-
-    WiFiManagerParameter p_host  ("hostname",  "Board name",     cfgMgr.cfg.hostname,   32);
-    WiFiManagerParameter p_broker("broker",    "MQTT Broker IP", cfgMgr.cfg.mqttBroker, 64);
-    WiFiManagerParameter p_port  ("port",      "MQTT Port",      "1883",                  6);
-    WiFiManagerParameter p_user  ("mqtt_user", "MQTT User",      cfgMgr.cfg.mqttUser,   32);
-    WiFiManagerParameter p_pass  ("mqtt_pass", "MQTT Password",  cfgMgr.cfg.mqttPass,   32);
-
-    wm.addParameter(&p_host);
-    wm.addParameter(&p_broker);
-    wm.addParameter(&p_port);
-    wm.addParameter(&p_user);
-    wm.addParameter(&p_pass);
-
-    wm.setSaveParamsCallback([&]() {
-        strlcpy(cfgMgr.cfg.hostname,   p_host.getValue(),   sizeof(cfgMgr.cfg.hostname));
-        strlcpy(cfgMgr.cfg.mqttBroker, p_broker.getValue(), sizeof(cfgMgr.cfg.mqttBroker));
-        cfgMgr.cfg.mqttPort = atoi(p_port.getValue());
-        strlcpy(cfgMgr.cfg.mqttUser,   p_user.getValue(),   sizeof(cfgMgr.cfg.mqttUser));
-        strlcpy(cfgMgr.cfg.mqttPass,   p_pass.getValue(),   sizeof(cfgMgr.cfg.mqttPass));
-        cfgMgr.save();
-    });
-
-    // Check if reset button held at boot → wipe credentials
+    // ── Phase 1: WiFi ─────────────────────────────────────────────────
     if (digitalRead(WIFI_RESET_PIN) == LOW) {
-        Serial.println("[WIFI] Reset button held at boot – clearing credentials");
-        wm.resetSettings();
+        Serial.println("[WIFI] Reset button – cancello credenziali");
+        SecureStore::clearWifi();
+        cfgMgr.cfg.wifiSsid[0] = '\0';
+        cfgMgr.save();
     }
-
-    String apName = String("ShieldH0-") + cfgMgr.cfg.hostname;
-    if (!wm.autoConnect(apName.c_str())) {
-        Serial.println("[WIFI] Portal timed out – restarting");
-        ESP.restart();
-    }
-    Serial.printf("[WIFI] Connected – IP: %s\n", WiFi.localIP().toString().c_str());
+    setupWiFi(cfgMgr);
 
     // ── mDNS ──────────────────────────────────────────────────────────
     if (MDNS.begin(cfgMgr.cfg.hostname)) {
@@ -112,20 +91,35 @@ void setup() {
     // ── OTA ───────────────────────────────────────────────────────────
     ota.begin(cfgMgr);
 
-    // ── Phase 2: Hardware init ────────────────────────────────────────
-    mux.begin();
+    // ── Phase 2: Hardware init (all optional except WiFi/web) ─────────
+    HardwareProbe hw;
+    hw.scanI2C();
 
-    Wire.begin(I2C_SDA, I2C_SCL);
-    tof.init();
-    tof.configureDefault();
-    tof.setTimeout(500);
-    Serial.println("[HW] VL6180X ready");
+    if (hw.vl6180x) {
+        tof.init();
+        tof.configureDefault();
+        tof.setTimeout(500);
+        tofPresent = true;
+        Serial.println("[HW] VL6180X initialized");
+    }
+    if (hw.pca9685) {
+        Serial.println("[HW] PCA9685 detected (build with -e wemos_d1_mini32_pca to use)");
+    }
+
+    const uint8_t muxUsed = countConfiguredMuxChannels();
+    if (muxUsed > 0) {
+        mux.begin();
+        Serial.printf("[HW] MUX active – %u channel(s) configured\n", muxUsed);
+    } else {
+        Serial.println("[HW] MUX idle – no channels configured yet");
+    }
 
     // ── Phase 3: Channel objects ──────────────────────────────────────
     buildChannelObjects();
 
     // ── Phase 3b: Rocrail signal/turnout objects ──────────────────────
     buildRocrailObjects();
+    rocrail.setLiveStatus(&liveStatus);
 
     // ── Phase 4: MQTT ────────────────────────────────────────────────
     mqtt.begin(cfgMgr, onMqttCommand, [&]() {
@@ -136,8 +130,8 @@ void setup() {
         rocrail.publishOnline(mqtt, cfgMgr.cfg.hostname);
     });
 
-    // ToF manager (links tof sensor → mqtt)
-    tofMgr.begin(tof, mqtt, cfgMgr);
+    // ToF manager (only if sensor present)
+    if (tofPresent) tofMgr.begin(tof, mqtt, cfgMgr);
 
     // ── Phase 5: Web config UI ────────────────────────────────────────
     webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
@@ -153,6 +147,13 @@ void setup() {
     });
 
     Serial.println("==== Boot complete ====\n");
+    Serial.printf("==== Apri: http://%s/  oppure  http://%s.local/ ====\n",
+                  WiFi.localIP().toString().c_str(), cfgMgr.cfg.hostname);
+    Serial.printf("[SUM] MUX:%u ch | I2C:%s | MQTT:%s | Web:OK\n",
+                  muxUsed,
+                  tofPresent ? "VL6180X" : "empty",
+                  mqtt.isEnabled() ? "on" : "off (configura broker)");
+    Serial.println();
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -161,14 +162,16 @@ void loop() {
     ota.loop();
     webConfig.loop();
     mqtt.loop();
-    tofMgr.loop();
+    if (tofPresent) tofMgr.loop();
 
     if (millis() - lastScanMs >= SENSOR_POLL_MS) {
         lastScanMs = millis();
-        for (auto& ch : channels) {
-            ch->update(mux);
+        if (!channels.empty()) {
+            for (auto& ch : channels) {
+                ch->update(mux);
+            }
+            publishSensorStates();
         }
-        publishSensorStates();
     }
 
     // Turnout pulse watchdog (cut coil power after pulseDurationMs)
@@ -233,6 +236,7 @@ void buildRocrailObjects() {
         const SensorRbConfig& sr = cfgMgr.cfg.sensorsRb[i];
         if (sr.rocrailId[0] == '\0') continue;
         rocrail.registerSensorRb(sr.rocrailId, sr.muxCh);
+        ensureSensorChannel(sr.muxCh);
         Serial.printf("[ROCR] Sensor rb '%s' → MUX ch%u\n",
                       sr.rocrailId, sr.muxCh);
     }
@@ -256,6 +260,7 @@ void buildChannelObjects() {
 
             case ChannelRole::SENSOR: {
                 auto* s = new SensorChannel(i);
+                s->threshold = cfgMgr.cfg.sensorThreshold;
                 sensors[i] = s;
                 channels.emplace_back(s);
                 Serial.printf("[MAP] Ch%02u → Sensor\n", i);
@@ -289,6 +294,11 @@ void buildChannelObjects() {
 
             case ChannelRole::SERIAL_RGB: {
                 auto* strip = new SerialRGBChannel(i);
+                if (!strip->enabled) {
+                    delete strip;
+                    Serial.printf("[MAP] Ch%02u → WS2812 skipped (no wiring)\n", i);
+                    break;
+                }
                 strip->begin();
                 strips[i] = strip;
                 channels.emplace_back(strip);
@@ -412,10 +422,70 @@ void checkResetButton() {
     } else if (pressed && wasPressed) {
         if (millis() - pressStart >= WIFI_RESET_HOLD_MS) {
             Serial.println("[WIFI] Long press – resetting credentials");
-            WiFiManager wm;
-            wm.resetSettings();
-            delay(200);
-            ESP.restart();
+            resetWifiAndRestart();
         }
     }
+}
+
+SensorChannel* ensureSensorChannel(uint8_t ch) {
+    auto it = sensors.find(ch);
+    if (it != sensors.end()) return it->second;
+
+    if (cfgMgr.cfg.pinMap[ch] != ChannelRole::UNUSED &&
+        cfgMgr.cfg.pinMap[ch] != ChannelRole::SENSOR) {
+        Serial.printf("[MAP] Ch%u busy (role %u) – sensor_rb skipped\n",
+                      ch, static_cast<uint8_t>(cfgMgr.cfg.pinMap[ch]));
+        return nullptr;
+    }
+
+    auto* s = new SensorChannel(ch);
+    s->threshold = cfgMgr.cfg.sensorThreshold;
+    sensors[ch] = s;
+    channels.emplace_back(s);
+    cfgMgr.cfg.pinMap[ch] = ChannelRole::SENSOR;
+    Serial.printf("[MAP] Auto sensor on MUX ch%u (Rocrail block)\n", ch);
+    return s;
+}
+
+uint8_t countConfiguredMuxChannels() {
+    bool used[MUX_CHANNELS] = {};
+
+    for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
+        switch (cfgMgr.cfg.pinMap[i]) {
+            case ChannelRole::SENSOR:
+            case ChannelRole::RELAY:
+            case ChannelRole::MARMOTTA:
+            case ChannelRole::SERIAL_RGB:
+                used[i] = true;
+                break;
+            case ChannelRole::SIGNAL_RGB:
+                for (uint8_t j = i; j < i + 3 && j < MUX_CHANNELS; j++) used[j] = true;
+                i += 2;
+                break;
+            default:
+                break;
+        }
+    }
+
+    for (uint8_t i = 0; i < cfgMgr.cfg.numSignals; i++) {
+        const SignalConfig& s = cfgMgr.cfg.signals[i];
+        if (s.id[0] == '\0') continue;
+        if (s.chR < MUX_CHANNELS) used[s.chR] = true;
+        if (s.chG < MUX_CHANNELS) used[s.chG] = true;
+        if (s.chV < MUX_CHANNELS) used[s.chV] = true;
+    }
+    for (uint8_t i = 0; i < cfgMgr.cfg.numTurnouts; i++) {
+        const TurnoutConfig& t = cfgMgr.cfg.turnouts[i];
+        if (t.id[0] == '\0') continue;
+        if (t.chS < MUX_CHANNELS) used[t.chS] = true;
+        if (t.chD < MUX_CHANNELS) used[t.chD] = true;
+    }
+    for (uint8_t i = 0; i < cfgMgr.cfg.numSensorsRb; i++) {
+        uint8_t c = cfgMgr.cfg.sensorsRb[i].muxCh;
+        if (c < MUX_CHANNELS) used[c] = true;
+    }
+
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MUX_CHANNELS; i++) if (used[i]) n++;
+    return n;
 }

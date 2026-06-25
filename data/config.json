@@ -1,11 +1,14 @@
 {
   "hostname": "ShieldH0",
+  "wifi_ssid": "",
+  "web_user": "admin",
+  "web_pass_hash": "",
   "mqtt_broker": "",
   "mqtt_port": 1883,
   "mqtt_user": "",
-  "mqtt_pass": "",
+  "sensor_threshold": 512,
   "pin_map": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   "signals": [],
-  "turnouts": []
+  "turnouts": [],
+  "sensors_rb": []
 }
-

@@ -29,11 +29,15 @@ struct TurnoutConfig {
 
 struct BoardConfig {
     char hostname[32]     = "ShieldH0";
+    char wifiSsid[33]     = "";          // saved network name (password in NVS)
+    char webUser[32]      = "admin";
+    char webPassHash[65]  = "";          // SHA-256 hex; empty = no login required
     char mqttBroker[64]   = "";
     uint16_t mqttPort     = 1883;
     char mqttUser[32]     = "";
-    char mqttPass[32]     = "";
-    ChannelRole pinMap[MUX_CHANNELS] = {};   // all UNUSED by default
+    char mqttPass[32]     = "";          // runtime only, loaded from SecureStore
+    uint16_t sensorThreshold = 512;      // ADC threshold for occupancy
+    ChannelRole pinMap[MUX_CHANNELS] = {};
 
     // Rocrail-mapped objects (up to 8 per type per board)
     static constexpr uint8_t MAX_SIGNALS    = 8;
@@ -76,10 +80,14 @@ public:
         }
 
         strlcpy(cfg.hostname,   doc["hostname"]   | cfg.hostname,   sizeof(cfg.hostname));
+        strlcpy(cfg.wifiSsid,   doc["wifi_ssid"]  | cfg.wifiSsid,   sizeof(cfg.wifiSsid));
+        strlcpy(cfg.webUser,    doc["web_user"]   | cfg.webUser,    sizeof(cfg.webUser));
+        strlcpy(cfg.webPassHash,doc["web_pass_hash"] | cfg.webPassHash, sizeof(cfg.webPassHash));
         strlcpy(cfg.mqttBroker, doc["mqtt_broker"] | cfg.mqttBroker, sizeof(cfg.mqttBroker));
         cfg.mqttPort = doc["mqtt_port"] | cfg.mqttPort;
+        cfg.sensorThreshold = doc["sensor_threshold"] | cfg.sensorThreshold;
         strlcpy(cfg.mqttUser,   doc["mqtt_user"]  | cfg.mqttUser,   sizeof(cfg.mqttUser));
-        strlcpy(cfg.mqttPass,   doc["mqtt_pass"]  | cfg.mqttPass,   sizeof(cfg.mqttPass));
+        cfg.mqttPass[0] = '\0';   // never from JSON – loaded via SecureStore
 
         JsonArray arr = doc["pin_map"].as<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS && i < arr.size(); i++) {
@@ -127,10 +135,13 @@ public:
     bool save() {
         JsonDocument doc;
         doc["hostname"]    = cfg.hostname;
+        doc["wifi_ssid"]   = cfg.wifiSsid;
+        doc["web_user"]    = cfg.webUser;
+        doc["web_pass_hash"]= cfg.webPassHash;
         doc["mqtt_broker"] = cfg.mqttBroker;
         doc["mqtt_port"]   = cfg.mqttPort;
         doc["mqtt_user"]   = cfg.mqttUser;
-        doc["mqtt_pass"]   = cfg.mqttPass;
+        doc["sensor_threshold"] = cfg.sensorThreshold;
 
         JsonArray arr = doc["pin_map"].to<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS; i++) {

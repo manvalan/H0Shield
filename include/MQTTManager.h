@@ -20,6 +20,7 @@ public:
         _cfg       = &cfg;
         _handler   = handler;
         _onConnect = onConnect;
+        _enabled   = (cfg.cfg.mqttBroker[0] != '\0');
 
         _client.setClient(_wifiClient);
         _client.setCallback([this](char* t, uint8_t* p, unsigned int l) {
@@ -27,31 +28,41 @@ public:
         });
         _client.setKeepAlive(60);
         _client.setSocketTimeout(5);
+
+        if (!_enabled) {
+            Serial.println("[MQTT] Broker not configured – MQTT disabled until set via web");
+        }
     }
 
     void loop() {
+        if (!_enabled) return;
+
         if (!_client.connected()) _reconnect();
         _client.loop();
 
-        if (millis() - _lastHeartbeat > MQTT_HEARTBEAT_MS) {
+        if (_client.connected() &&
+            millis() - _lastHeartbeat > MQTT_HEARTBEAT_MS) {
             _lastHeartbeat = millis();
             _client.publish(_cfg->topic("status/heartbeat").c_str(), "online", true);
         }
     }
 
+    bool isEnabled() const { return _enabled; }
+
     // Publish on a board-namespaced topic: railway/<name>/<suffix>
     bool publish(const char* suffix, const String& payload, bool retain = false) {
+        if (!_enabled || !_client.connected()) return false;
         return _client.publish(_cfg->topic(suffix).c_str(),
                                payload.c_str(), retain);
     }
 
-    // Publish on any arbitrary topic (used for Rocrail feedback)
     bool publishRaw(const char* topic, const String& payload, bool retain = false) {
+        if (!_enabled || !_client.connected()) return false;
         return _client.publish(topic, payload.c_str(), retain);
     }
 
-    // Subscribe to an arbitrary topic (used for Rocrail command topics)
     bool subscribe(const char* topic) {
+        if (!_enabled || !_client.connected()) return false;
         return _client.subscribe(topic);
     }
 
@@ -65,6 +76,7 @@ private:
     OnConnectHandler _onConnect;
     unsigned long    _lastHeartbeat = 0;
     uint8_t          _retries       = 0;
+    bool             _enabled       = false;
     IPAddress        _resolvedBroker;
 
     // Resolve broker address (supports IP strings and *.local mDNS hostnames)

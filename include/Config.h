@@ -9,7 +9,8 @@
 #define MUX_PIN_SIG  34   // ADC input (reads from selected MUX channel)
 #define MUX_CHANNELS 16
 
-// ── I2C (VL6180X – dedicated bus, NOT through MUX) ──────────────────
+// ── I2C (VL6180X – dedicated bus, optional, NOT through MUX) ────────
+// Bus may be empty at boot: firmware scans and enables only found devices.
 #define I2C_SDA      21
 #define I2C_SCL      22
 #define VL6180X_ADDR 0x29
