@@ -59,6 +59,18 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .mux-cell{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:8px 4px;text-align:center}
 .mux-num{font-size:.6rem;color:var(--muted);margin-bottom:4px}
 .mux-cell select{padding:5px 2px;font-size:.65rem}
+.board-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.board-table th,.board-table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
+.board-table th{font-size:.65rem;text-transform:uppercase;color:var(--muted);font-weight:700}
+.board-table select,.board-table input{font-size:.78rem;padding:6px 8px}
+.i2c-slot{display:grid;grid-template-columns:52px 1fr 1fr 88px;gap:8px;align-items:center;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
+.i2c-slot .slot-label{font-weight:700;font-size:.82rem}
+.i2c-detect{font-size:.7rem;color:var(--muted)}
+.i2c-detect.ok{color:#86efac}
+.elem-section{margin-bottom:18px}
+.elem-section summary{cursor:pointer;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 0;list-style:none}
+.elem-section summary::-webkit-details-marker{display:none}
+.elem-section[open] summary{color:var(--text);margin-bottom:10px}
 .dyn{display:grid;gap:8px;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px}
 .dyn.rb{grid-template-columns:1fr 56px 32px}
 .dyn.sw{grid-template-columns:1fr 58px 58px 58px 32px}
@@ -71,6 +83,24 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .save-bar .inner{max-width:680px;margin:0 auto}
 #toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);padding:10px 18px;border-radius:var(--r);font-size:.82rem;opacity:0;transition:opacity .25s;z-index:100;pointer-events:none}
 #toast.show{opacity:1}
+.btn.busy{opacity:.55;pointer-events:none}
+.wifi-hero{padding:16px;border-radius:var(--rs);margin-bottom:16px;border:1px solid var(--border);background:var(--surface2)}
+.wifi-hero.online{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.08)}
+.wifi-hero.setup{border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06)}
+.wifi-hero-title{font-size:1rem;font-weight:700;margin-bottom:4px}
+.wifi-hero-sub{font-size:.78rem;color:var(--muted)}
+.wifi-ssid-row{display:flex;gap:8px;align-items:stretch}
+.wifi-ssid-row select{flex:1}
+.wifi-ssid-row .btn{flex-shrink:0;width:auto;padding:10px 14px;font-size:1rem;line-height:1}
+.wifi-result{margin-top:14px;padding:14px 16px;border-radius:var(--rs);font-size:.88rem;display:none;line-height:1.45}
+.wifi-result.show{display:block}
+.wifi-result.wait{background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.35);color:#c7d2fe}
+.wifi-result.ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);color:#86efac}
+.wifi-result.err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:#fca5a5}
+.wifi-result .big{font-size:1rem;font-weight:700;margin-bottom:2px}
+.wifi-progress{height:4px;background:rgba(255,255,255,.15);border-radius:99px;margin-top:12px;overflow:hidden}
+.wifi-progress>i{display:block;height:100%;width:35%;background:var(--accent);border-radius:99px;animation:wifi-bar 1.1s ease-in-out infinite}
+@keyframes wifi-bar{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 #login{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;padding:20px}
 #login.show{display:flex}
 .login-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;width:100%;max-width:340px}
@@ -125,11 +155,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   </div>
   <nav class="tabs">
     <button class="tab active" data-tab="dash">Dashboard</button>
+    <button class="tab" data-tab="board">Scheda</button>
+    <button class="tab" data-tab="elem">Elementi</button>
     <button class="tab" data-tab="rete">Rete</button>
-    <button class="tab" data-tab="sens">Sensori</button>
-    <button class="tab" data-tab="disp">Display</button>
-    <button class="tab" data-tab="acc">Accessori</button>
-    <button class="tab" data-tab="scn">Scenari</button>
     <button class="tab" data-tab="sys">Sistema</button>
   </nav>
 </header>
@@ -167,18 +195,131 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   </div>
 </section>
 
+<!-- SCHEDA PCB -->
+<section id="p-board" class="panel">
+  <div class="card">
+    <div class="section-head">
+      <span>Slot I2C (U9–U16)</span>
+      <button class="btn btn-s" type="button" onclick="scanI2c()" style="width:auto;padding:6px 12px;font-size:.75rem">Scansiona bus</button>
+    </div>
+    <p style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
+      Modalità <strong>Auto</strong>: polling per identificare VL6180X (distanza) o display OLED.
+      Assegna manualmente ToF o collega uno slot a un display configurato in Elementi.
+    </p>
+    <div id="i2c-slots"></div>
+    <div class="row2" style="margin-top:10px">
+      <div class="field"><label>Slot ToF globale</label>
+        <select id="tof-slot"><option value="0">U9 (0)</option><option value="1">U10 (1)</option><option value="2">U11 (2)</option><option value="3">U12 (3)</option><option value="4">U13 (4)</option><option value="5">U14 (5)</option><option value="6">U15 (6)</option><option value="7">U16 (7)</option></select></div>
+      <div class="field"><label>Indirizzo TCA9548A (dec)</label>
+        <input id="tca-addr" type="number" min="112" max="119" value="112"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Multiplexer CD74HC4067 — canali 0–15</div>
+    <p style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
+      Assegna ogni canale a sensore, semaforo, scambio, accessorio, relè o altro.
+      L'elemento va poi configurato nel tab <strong>Elementi</strong>.
+    </p>
+    <div style="overflow-x:auto">
+      <table class="board-table">
+        <thead><tr><th>Ch</th><th>Ruolo</th><th>Elemento</th><th>Rilevato</th></tr></thead>
+        <tbody id="mux-board"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ELEMENTI -->
+<section id="p-elem" class="panel">
+  <details class="elem-section" open>
+    <summary>Sensori &amp; soglie</summary>
+    <div class="card">
+      <div class="card-title">Soglia occupazione MUX (ADC 0–4095)</div>
+      <input id="sensor-th" type="range" min="100" max="4000" step="10" value="512" oninput="document.getElementById('th-val').textContent=this.value">
+      <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="th-val">512</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">VL6180X ToF</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:.85rem">
+        <input id="tof-en" type="checkbox" checked> Abilita rilevamento distanza
+      </label>
+      <input id="tof-th" type="range" min="5" max="100" step="1" value="35" oninput="document.getElementById('tof-th-val').textContent=this.value">
+      <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="tof-th-val">35</span> mm</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Blocchi Rocrail ToF</div>
+      <div id="tof-rb-list"></div>
+      <button class="btn btn-o" onclick="addTofRb()">+ Blocco ToF</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Sensori assorbimento Rocrail</div>
+      <div id="rb-list"></div>
+      <button class="btn btn-o" onclick="addRb()">+ Sensore blocco</button>
+    </div>
+  </details>
+  <details class="elem-section" open>
+    <summary>Segnali Rocrail</summary>
+    <div class="card">
+      <div class="row2" style="margin-bottom:12px">
+        <div class="field"><label>Aspect MAIN al boot</label>
+          <select id="boot-main"><option value="red">Rosso</option><option value="yellow">Giallo</option><option value="green">Verde</option></select></div>
+        <div class="field"><label>Aspect SHUNT al boot</label>
+          <select id="boot-shunt"><option value="stop">Stop</option><option value="go">Via</option><option value="oblique">Obliquo</option></select></div>
+      </div>
+      <div id="sig-list"></div>
+      <button class="btn btn-o" onclick="addSig()">+ Segnale</button>
+    </div>
+  </details>
+  <details class="elem-section">
+    <summary>Scambi Rocrail</summary>
+    <div class="card">
+      <div id="sw-list"></div>
+      <button class="btn btn-o" onclick="addSw()">+ Scambio</button>
+    </div>
+  </details>
+  <details class="elem-section">
+    <summary>Display OLED</summary>
+    <div class="card">
+      <div id="disp-list"></div>
+      <button class="btn btn-o" onclick="addDisplay()">+ Display</button>
+    </div>
+  </details>
+  <details class="elem-section">
+    <summary>Accessori (relè)</summary>
+    <div class="card">
+      <div id="acc-list"></div>
+      <button class="btn btn-o" onclick="addAcc()">+ Accessorio</button>
+    </div>
+  </details>
+  <details class="elem-section">
+    <summary>Scenari automazione</summary>
+    <div class="card">
+      <div id="scn-list"></div>
+      <button class="btn btn-o" onclick="addScn()">+ Scenario</button>
+    </div>
+  </details>
+</section>
+
 <!-- RETE -->
 <section id="p-rete" class="panel">
   <div class="card">
-    <div class="card-title">Connessione attuale</div>
-    <div id="wifi-status" class="empty">Caricamento…</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Reti disponibili</div>
-    <button class="btn btn-s" style="width:100%;margin-bottom:8px" onclick="scanWifi()">Scansiona reti</button>
-    <div id="net-list" class="net-list empty">Premi Scansiona</div>
-    <div class="field"><label>Password WiFi</label><input id="wifi-pass" type="password" placeholder="Password della rete selezionata"></div>
-    <button class="btn btn-p" onclick="connectWifi()">Connetti</button>
+    <div id="wifi-hero" class="wifi-hero setup">
+      <div class="wifi-hero-title">WiFi</div>
+      <div class="wifi-hero-sub">Caricamento stato…</div>
+    </div>
+    <div class="field">
+      <label>Rete</label>
+      <div class="wifi-ssid-row">
+        <select id="wifi-ssid"><option value="">Scansione reti…</option></select>
+        <button type="button" id="btn-wifi-scan" class="btn btn-s" onclick="scanWifi()" title="Aggiorna elenco">↻</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input id="wifi-pass" type="password" placeholder="Password WiFi" autocomplete="off">
+    </div>
+    <button id="btn-wifi-connect" class="btn btn-p" onclick="connectWifi()">Connetti</button>
+    <div id="wifi-result"></div>
   </div>
   <div class="card">
     <div class="card-title">Sicurezza pannello web</div>
@@ -189,91 +330,6 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <p style="font-size:.72rem;color:var(--muted)">Salvata come hash SHA-256, mai in chiaro nel file config.</p>
   </div>
   <button class="btn btn-o" onclick="resetWifi()">Reset WiFi → modalità setup AP</button>
-</section>
-
-<!-- SENSORI -->
-<section id="p-sens" class="panel">
-  <div class="card">
-    <div class="card-title">Soglia occupazione (ADC 0–4095)</div>
-    <input id="sensor-th" type="range" min="100" max="4000" step="10" value="512" oninput="document.getElementById('th-val').textContent=this.value">
-    <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="th-val">512</span></div>
-  </div>
-  <div class="card">
-    <div class="card-title">VL6180X ToF (I2C)</div>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:.85rem">
-      <input id="tof-en" type="checkbox" checked> Abilita rilevamento distanza
-    </label>
-    <div class="card-title" style="margin-top:8px">Soglia occupazione (mm)</div>
-    <p style="font-size:.72rem;color:var(--muted);margin-bottom:8px">Sotto la soglia = occupato · sopra = libero</p>
-    <input id="tof-th" type="range" min="5" max="100" step="1" value="35" oninput="document.getElementById('tof-th-val').textContent=this.value">
-    <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="tof-th-val">35</span> mm</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Blocchi Rocrail ToF</div>
-    <div id="tof-rb-list"></div>
-    <button class="btn btn-o" onclick="addTofRb()">+ Blocco ToF</button>
-  </div>
-  <div class="card">
-    <div class="card-title">Canali MUX → Sensore assorbimento</div>
-    <p style="font-size:.75rem;color:var(--muted);margin-bottom:10px">Seleziona "Sensore" solo sui canali cablati.</p>
-    <div class="mux-grid" id="mux-sens"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Sensori blocco Rocrail</div>
-    <div id="rb-list"></div>
-    <button class="btn btn-o" onclick="addRb()">+ Aggiungi sensore blocco</button>
-  </div>
-</section>
-
-<!-- DISPLAY -->
-<section id="p-disp" class="panel">
-  <div class="card">
-    <div class="card-title">Display OLED I2C (128×64 SH1106)</div>
-    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
-      Due tipi: <strong>platform</strong> (cartello binario) e <strong>timetable</strong> (tabellone partenze).
-      Indirizzi tipici: 60 (0x3C) e 61 (0x3D). Firmware con U8g2: <code>wemos_d1_mini32_usb_display</code>.
-    </p>
-    <div id="disp-list"></div>
-    <button class="btn btn-o" onclick="addDisplay()">+ Display</button>
-  </div>
-  <div class="card">
-    <div class="card-title">Topic MQTT</div>
-    <p style="font-size:.72rem;color:var(--muted);line-height:1.5">
-      Binario: <code>railway/&lt;nome&gt;/display/&lt;id&gt;/platform/destination|time|status|num</code><br>
-      Tabellone: <code>…/timetable/station</code> e <code>…/timetable/row/N/time|dest|bin|status</code>
-    </p>
-  </div>
-</section>
-
-<!-- ACCESSORI -->
-<section id="p-acc" class="panel">
-  <div class="card">
-    <div class="card-title">Relè e profili</div>
-    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
-      Profili: <strong>generic</strong> · <strong>light</strong> (luci) · <strong>level_xing</strong> (PL lampeggio+sbarra) · <strong>bell</strong> (impulso) · <strong>gate</strong> (sbarra)
-    </p>
-    <div id="acc-list"></div>
-    <button class="btn btn-o" onclick="addAcc()">+ Accessorio</button>
-  </div>
-  <div class="card">
-    <div class="card-title">Comando MQTT</div>
-    <p style="font-size:.72rem;color:var(--muted);line-height:1.5">
-      <code>{"accessory":"luci_sala","action":"on"}</code> — azioni: on · off · toggle · ring (campana) · activate (PL)
-    </p>
-  </div>
-</section>
-
-<!-- SCENARI -->
-<section id="p-scn" class="panel">
-  <div class="card">
-    <div class="card-title">Automazioni sensore → output</div>
-    <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
-      Quando un sensore diventa <strong>occupato</strong>, attiva PL/luci/display configurati.
-      Al <strong>libero</strong> ripristina lo stato iniziale.
-    </p>
-    <div id="scn-list"></div>
-    <button class="btn btn-o" onclick="addScn()">+ Scenario</button>
-  </div>
 </section>
 
 <!-- SISTEMA -->
@@ -289,29 +345,16 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div class="field"><label>Utente MQTT</label><input id="mqtt-user"></div>
       <div class="field"><label>Password MQTT</label><input id="mqtt-pass" type="password" placeholder="Salvata cifrata in NVS"></div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">Altri canali MUX</div>
-    <div class="mux-grid" id="mux-sys"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Aspect di avvio segnali</div>
+    <div class="card-title" style="margin-top:12px">Sistema informativo plastico (SIP)</div>
+    <p style="font-size:.72rem;color:var(--muted);margin:0 0 8px">Topic unico JSON: ogni display applica solo i messaggi che corrispondono a stazione e binario configurati. Vedi <code>docs/INFO_MQTT.md</code>.</p>
     <div class="row2">
-      <div class="field"><label>MAIN al boot</label>
-        <select id="boot-main"><option value="red">Rosso</option><option value="yellow">Giallo</option><option value="green">Verde</option></select></div>
-      <div class="field"><label>SHUNT al boot</label>
-        <select id="boot-shunt"><option value="stop">Stop</option><option value="go">Via</option><option value="oblique">Obliquo</option></select></div>
+      <div class="field"><label>Topic SIP</label><input id="info-topic" placeholder="railway/info"></div>
+      <div class="field" style="display:flex;align-items:flex-end;padding-bottom:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input id="info-enabled" type="checkbox"> Abilita sottoscrizione SIP
+        </label>
+      </div>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-title">Segnali Rocrail</div>
-    <div id="sig-list"></div>
-    <button class="btn btn-o" onclick="addSig()">+ Segnale</button>
-  </div>
-  <div class="card">
-    <div class="card-title">Scambi Rocrail</div>
-    <div id="sw-list"></div>
-    <button class="btn btn-o" onclick="addSw()">+ Scambio</button>
   </div>
 </section>
 
@@ -322,7 +365,22 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 
 <script>
 const ROLES=[{v:0,l:'—'},{v:1,l:'Sensore'},{v:2,l:'Relè'},{v:3,l:'Semaforo'},{v:4,l:'Marmotta'},{v:5,l:'LED'}];
-let cfg={}, selSsid='', authToken=localStorage.getItem('sh0tok')||'';
+const MUX_BIND_ROLES=[
+  {v:'unused',l:'— Non usato'},
+  {v:'sensor',l:'Sensore assorbimento',el:'sensor'},
+  {v:'relay',l:'Relè generico'},
+  {v:'signal_r',l:'Semaforo · Rosso',el:'signal'},
+  {v:'signal_g',l:'Semaforo · Giallo',el:'signal'},
+  {v:'signal_v',l:'Semaforo · Verde',el:'signal'},
+  {v:'turnout_s',l:'Scambio · Raddrizzato',el:'turnout'},
+  {v:'turnout_d',l:'Scambio · Deviato',el:'turnout'},
+  {v:'accessory',l:'Accessorio relè',el:'accessory'},
+  {v:'accessory_bar',l:'PL · Sbarra',el:'accessory'},
+  {v:'marmotta',l:'Marmotta'},
+  {v:'ws2812',l:'Striscia WS2812'}
+];
+const I2C_MODES=[{v:'auto',l:'Auto (polling)'},{v:'none',l:'Nessuno'},{v:'tof',l:'Sensore distanza'},{v:'display',l:'Display OLED'}];
+let cfg={}, selSsid='', authToken=localStorage.getItem('sh0tok')||'', boardStatus={};
 
 function authH(){return authToken?{'X-Auth-Token':authToken}:{};}
 function authHJson(){return{...authH(),'Content-Type':'application/json'};}
@@ -338,6 +396,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   const show=t.dataset.tab!=='dash';
   document.getElementById('save-bar').style.display=show?'block':'none';
   document.body.style.paddingBottom=show?'80px':'0';
+  if(t.dataset.tab==='rete') initReteTab();
 });
 
 async function doLogin(){
@@ -368,6 +427,8 @@ async function loadCfg(){
 function populate(c){
   document.getElementById('hostname').value=c.hostname||'';
   document.getElementById('broker').value=c.mqtt_broker||'';
+  document.getElementById('info-topic').value=c.info_mqtt_topic||'railway/info';
+  document.getElementById('info-enabled').checked=c.info_mqtt_enabled!==false;
   document.getElementById('port').value=c.mqtt_port||1883;
   document.getElementById('mqtt-user').value=c.mqtt_user||'';
   document.getElementById('web-user').value=c.web_user||'admin';
@@ -379,87 +440,344 @@ function populate(c){
   const tofTh=c.tof_threshold_mm||35;
   document.getElementById('tof-th').value=tofTh;
   document.getElementById('tof-th-val').textContent=tofTh;
-  buildMux('mux-sens',c.pin_map||Array(16).fill(0),true);
-  buildMux('mux-sys',c.pin_map||Array(16).fill(0),false);
+  document.getElementById('tca-addr').value=c.tca9548_addr||112;
+  document.getElementById('tof-slot').value=c.tof_i2c_slot||0;
+  buildI2cSlots(c.i2c_slots||[]);
+  buildBoardMux(deriveMuxBindings(c));
   buildRb(c.sensors_rb||[]);
   buildTofRb(c.tof_blocks||[]);
   buildDisplays(c.displays||[]);
   buildAcc(c.accessories||[]);
   buildScn(c.scenarios||[]);
+  buildI2cSlots(c.i2c_slots||[]);
   const bm=c.boot_aspect_main||'red'; document.getElementById('boot-main').value=bm;
   const bs=c.boot_aspect_shunt||'stop'; document.getElementById('boot-shunt').value=bs;
   buildSig(c.signals||[]);
   buildSw(c.turnouts||[]);
   loadWifiStatus();
+  if(document.getElementById('p-rete').classList.contains('active')) initReteTab();
 }
 
-function buildMux(id,pin,sensOnly){
-  const g=document.getElementById(id); g.innerHTML='';
+function deriveMuxBindings(c){
+  const b=Array.from({length:16},(_,ch)=>({ch,role:'unused',element:''}));
+  const pm=c.pin_map||[];
+  (c.sensors_rb||[]).forEach(s=>{
+    if(s.mux_ch!=null&&s.mux_ch<16) b[s.mux_ch]={ch:s.mux_ch,role:'sensor',element:s.rocrail_id||''};
+  });
+  (c.signals||[]).forEach(s=>{
+    if(s.use_pca) return;
+    if(s.chR<16) b[s.chR]={ch:s.chR,role:'signal_r',element:s.id||''};
+    if(s.chG<16) b[s.chG]={ch:s.chG,role:'signal_g',element:s.id||''};
+    if(s.chV<16) b[s.chV]={ch:s.chV,role:'signal_v',element:s.id||''};
+  });
+  (c.turnouts||[]).forEach(t=>{
+    if(t.chS<16) b[t.chS]={ch:t.chS,role:'turnout_s',element:t.id||''};
+    if(t.chD<16) b[t.chD]={ch:t.chD,role:'turnout_d',element:t.id||''};
+  });
+  (c.accessories||[]).forEach(a=>{
+    if(a.mux_ch!=null&&a.mux_ch<16) b[a.mux_ch]={ch:a.mux_ch,role:'accessory',element:a.id||''};
+    if(a.mux_ch_bar!=null&&a.mux_ch_bar<16) b[a.mux_ch_bar]={ch:a.mux_ch_bar,role:'accessory_bar',element:a.id||''};
+  });
   for(let i=0;i<16;i++){
-    const role=pin[i]||0;
-    if(sensOnly && role!==0 && role!==1) continue;
-    const cell=document.createElement('div'); cell.className='mux-cell';
-    const sel=document.createElement('select');
-    sel.dataset.ch=i; sel.className='role';
-    ROLES.forEach(r=>{
-      if(!sensOnly && r.v===1) return;
-      if(sensOnly && r.v!==0 && r.v!==1) return;
+    if(b[i].role!=='unused') continue;
+    const r=pm[i]||0;
+    if(r===1) b[i]={ch:i,role:'sensor',element:''};
+    else if(r===2) b[i]={ch:i,role:'relay',element:''};
+    else if(r===3) b[i]={ch:i,role:'signal_r',element:''};
+    else if(r===4) b[i]={ch:i,role:'marmotta',element:''};
+    else if(r===5) b[i]={ch:i,role:'ws2812',element:''};
+  }
+  return b;
+}
+
+function elementOptions(type){
+  if(type==='sensor') return getRb().map(s=>s.rocrail_id).filter(Boolean);
+  if(type==='signal') return getSig().map(s=>s.id).filter(Boolean);
+  if(type==='turnout') return getSw().map(s=>s.id).filter(Boolean);
+  if(type==='accessory') return getAcc().map(a=>a.id).filter(Boolean);
+  return [];
+}
+
+function buildBoardMux(bindings){
+  const tb=document.getElementById('mux-board'); if(!tb) return;
+  tb.innerHTML='';
+  bindings.forEach(row=>{
+    const tr=document.createElement('tr');
+    tr.dataset.ch=row.ch;
+    const tdCh=document.createElement('td');
+    tdCh.innerHTML=`<strong>${String(row.ch).padStart(2,'0')}</strong>`;
+    const tdRole=document.createElement('td');
+    const roleSel=document.createElement('select');
+    roleSel.className='mux-role';
+    MUX_BIND_ROLES.forEach(r=>{
       const o=document.createElement('option');
       o.value=r.v; o.textContent=r.l;
-      if(r.v===(sensOnly?1:role)) o.selected=(sensOnly?role===1:role===r.v);
-      if(sensOnly) o.selected=role===1;
-      sel.appendChild(o);
+      if(r.v===row.role) o.selected=true;
+      roleSel.appendChild(o);
     });
-    if(sensOnly) sel.value=role===1?'1':'0';
-    else sel.value=role;
-    cell.innerHTML=`<div class="mux-num">${String(i).padStart(2,'0')}</div>`;
-    cell.appendChild(sel); g.appendChild(cell);
+    tdRole.appendChild(roleSel);
+    const tdEl=document.createElement('td');
+    const elIn=document.createElement('input');
+    elIn.className='mux-el'; elIn.placeholder='ID elemento';
+    elIn.value=row.element||'';
+    tdEl.appendChild(elIn);
+    const tdLive=document.createElement('td');
+    const det=document.createElement('span');
+    det.className='i2c-detect mux-live';
+    det.textContent='—';
+    tdLive.appendChild(det);
+    tr.append(tdCh,tdRole,tdEl,tdLive);
+    tb.appendChild(tr);
+  });
+  updateMuxLive();
+}
+
+function updateMuxLive(){
+  const sens=boardStatus.sensors||{};
+  document.querySelectorAll('#mux-board tr').forEach(tr=>{
+    const ch=tr.dataset.ch;
+    const live=tr.querySelector('.mux-live');
+    if(!live) return;
+    if(sens[ch]){
+      live.textContent=sens[ch].occupied?'Occupato':'Libero';
+      live.className='i2c-detect mux-live ok';
+    } else {
+      live.textContent='—';
+      live.className='i2c-detect mux-live';
+    }
+  });
+}
+
+function getMuxBindings(){
+  return[...document.querySelectorAll('#mux-board tr')].map(tr=>({
+    ch:+tr.dataset.ch,
+    role:tr.querySelector('.mux-role').value,
+    element:tr.querySelector('.mux-el').value.trim()
+  }));
+}
+
+function applyMuxBindingsToConfig(body){
+  const bindings=getMuxBindings();
+  const pinMap=Array(16).fill(0);
+  let signals=getSig(), turnouts=getSw(), sensors=getRb(), accessories=getAcc();
+  bindings.forEach(row=>{
+    const ch=row.ch, el=row.element;
+    switch(row.role){
+      case 'sensor':
+        pinMap[ch]=1;
+        if(el){
+          let s=sensors.find(x=>x.rocrail_id===el);
+          if(!s){s={rocrail_id:el,mux_ch:ch};sensors.push(s);}
+          else s.mux_ch=ch;
+        }
+        break;
+      case 'relay': pinMap[ch]=2; break;
+      case 'signal_r':{
+        pinMap[ch]=0;
+        if(el){let s=signals.find(x=>x.id===el); if(s) s.chR=ch;}
+        break;}
+      case 'signal_g':{
+        if(el){let s=signals.find(x=>x.id===el); if(s) s.chG=ch;}
+        break;}
+      case 'signal_v':{
+        if(el){let s=signals.find(x=>x.id===el); if(s) s.chV=ch;}
+        break;}
+      case 'turnout_s':{
+        if(el){let t=turnouts.find(x=>x.id===el); if(t) t.chS=ch;}
+        break;}
+      case 'turnout_d':{
+        if(el){let t=turnouts.find(x=>x.id===el); if(t) t.chD=ch;}
+        break;}
+      case 'accessory':{
+        pinMap[ch]=2;
+        if(el){let a=accessories.find(x=>x.id===el); if(a) a.mux_ch=ch;}
+        break;}
+      case 'accessory_bar':{
+        pinMap[ch]=2;
+        if(el){let a=accessories.find(x=>x.id===el); if(a) a.mux_ch_bar=ch;}
+        break;}
+      case 'marmotta': pinMap[ch]=4; break;
+      case 'ws2812': pinMap[ch]=5; break;
+      default: pinMap[ch]=0;
+    }
+  });
+  body.pin_map=pinMap;
+  body.signals=signals.filter(x=>x.id);
+  body.turnouts=turnouts.filter(x=>x.id);
+  body.sensors_rb=sensors.filter(x=>x.rocrail_id);
+  body.accessories=accessories.filter(x=>x.id);
+}
+
+function buildI2cSlots(slots){
+  const g=document.getElementById('i2c-slots'); if(!g) return;
+  g.innerHTML='';
+  for(let s=0;s<8;s++){
+    const d=slots[s]||{slot:s,mode:'auto'};
+    const row=document.createElement('div'); row.className='i2c-slot';
+    row.dataset.slot=s;
+    const modeSel=document.createElement('select');
+    modeSel.className='i2-mode';
+    I2C_MODES.forEach(m=>{
+      const o=document.createElement('option');
+      o.value=m.v; o.textContent=m.l;
+      if((d.mode||'auto')===m.v) o.selected=true;
+      modeSel.appendChild(o);
+    });
+    const elSel=document.createElement('select');
+    elSel.className='i2-el';
+    elSel.innerHTML='<option value="">— display —</option>';
+    getDisplays().forEach(dp=>{
+      const o=document.createElement('option');
+      o.value=dp.id; o.textContent=dp.id;
+      if(d.element_id===dp.id) o.selected=true;
+      elSel.appendChild(o);
+    });
+    const det=document.createElement('span');
+    det.className='i2c-detect i2-live';
+    const detLabel=d.detected&&d.detected!=='none'
+      ? (d.detected+(d.detected_addr?' @ '+d.detected_addr:'')) : 'non rilevato';
+    det.textContent=detLabel;
+    if(d.present||d.detected==='vl6180x'||d.detected==='display') det.classList.add('ok');
+    modeSel.onchange=()=>{elSel.style.display=modeSel.value==='display'?'block':'none';};
+    elSel.style.display=(d.mode||'auto')==='display'?'block':'none';
+    row.innerHTML=`<span class="slot-label">U${s+9}</span>`;
+    row.appendChild(modeSel);
+    row.appendChild(elSel);
+    row.appendChild(det);
+    g.appendChild(row);
   }
 }
 
-function mergePinMaps(){
-  const base=Array(16).fill(0);
-  document.querySelectorAll('#mux-sens select.role').forEach(s=>{
-    base[+s.dataset.ch]=+s.value;
-  });
-  document.querySelectorAll('#mux-sys select.role').forEach(s=>{
-    const v=+s.value; if(v) base[+s.dataset.ch]=v;
-  });
-  return base;
+function getI2cSlots(){
+  return[...document.querySelectorAll('#i2c-slots .i2c-slot')].map(row=>({
+    slot:+row.dataset.slot,
+    mode:row.querySelector('.i2-mode').value,
+    element_id:row.querySelector('.i2-el').value
+  }));
+}
+
+async function scanI2c(){
+  toast('Scansione I2C…');
+  try{
+    const r=await fetch('/api/board/discover');
+    const d=await r.json();
+    if(!d.slots){toast('Nessun dato');return;}
+    d.slots.forEach((sl,i)=>{
+      const row=document.querySelector('#i2c-slots .i2c-slot[data-slot="'+sl.slot+'"]');
+      if(!row) return;
+      const det=row.querySelector('.i2-live');
+      if(!det) return;
+      det.textContent=sl.present?(sl.detected+(sl.addr?' @ '+sl.addr:'')):'non rilevato';
+      det.className='i2c-detect i2-live'+(sl.present?' ok':'');
+    });
+    toast('Scan completato');
+  }catch(e){toast('Errore scan I2C');}
 }
 
 async function loadWifiStatus(){
   try{
     const r=await fetch('/api/wifi/status'); const w=await r.json();
     document.getElementById('d-wifi').textContent=w.connected?w.rssi+' dBm':'Offline';
-    document.getElementById('wifi-status').innerHTML=`
-      <div class="tile"><div><div class="tile-id">${w.connected?w.ssid:'Non connesso'}</div>
-      <div style="font-size:.75rem;color:var(--muted)">${w.connected?'IP '+w.ip:'AP '+w.ap_ip}</div></div>
-      <span class="chip ${w.connected?'chip-ok':'chip-n'}">${w.connected?'Online':'Setup'}</span></div>`;
+    const hero=document.getElementById('wifi-hero');
+    if(hero){
+      hero.className='wifi-hero '+(w.connected?'online':'setup');
+      if(w.connected){
+        hero.innerHTML=`<div class="wifi-hero-title">✓ ${w.ssid}</div>
+          <div class="wifi-hero-sub">IP ${w.ip} · segnale ${w.rssi} dBm</div>`;
+      }else{
+        hero.innerHTML=`<div class="wifi-hero-title">Modalità configurazione</div>
+          <div class="wifi-hero-sub">Connettiti all'AP della scheda, poi scegli la rete di casa qui sotto${w.ap_ip?' · AP '+w.ap_ip:''}</div>`;
+      }
+    }
   }catch(e){}
 }
 
-async function scanWifi(){
-  toast('Scansione…');
-  document.getElementById('net-list').innerHTML='<div class="empty">Scansione in corso…</div>';
-  const r=await fetch('/api/wifi/scan'); const d=await r.json();
-  const list=document.getElementById('net-list'); list.innerHTML='';
-  if(!d.networks||!d.networks.length){list.innerHTML='<div class="empty">Nessuna rete trovata</div>';return}
-  d.networks.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{
-    const el=document.createElement('div'); el.className='net-item';
-    el.innerHTML=`<div><div class="ssid">${n.ssid||'(hidden)'}</div><div class="meta">${n.rssi} dBm · ch ${n.ch}${n.secure?' · 🔒':''}</div></div>`;
-    el.onclick=()=>{document.querySelectorAll('.net-item').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');selSsid=n.ssid;};
-    list.appendChild(el);
+function initReteTab(){
+  loadWifiStatus();
+  const sel=document.getElementById('wifi-ssid');
+  if(sel && sel.options.length<=1) scanWifi(true);
+}
+
+function setWifiUiBusy(busy){
+  ['btn-wifi-scan','btn-wifi-connect'].forEach(id=>{
+    const b=document.getElementById(id);
+    if(b) b.classList.toggle('busy',busy);
   });
 }
 
+function setWifiResult(kind,title,progress,sub){
+  const el=document.getElementById('wifi-result');
+  if(!kind){el.className='wifi-result';el.innerHTML='';return;}
+  el.className='wifi-result show '+kind;
+  if(kind==='wait'){
+    el.innerHTML=`<div class="big">${title}</div>${progress?'<div class="wifi-progress"><i></i></div>':''}`;
+  }else if(kind==='ok'){
+    el.innerHTML=`<div class="big">${title}</div>${sub?`<div style="opacity:.9;font-size:.82rem;margin-top:4px">${sub}</div>`:''}`;
+  }else{
+    el.innerHTML=`<div class="big">${title}</div>${sub?`<div style="font-size:.82rem;margin-top:4px;opacity:.9">${sub}</div>`:''}`;
+  }
+}
+
+function getWifiSsid(){
+  const sel=document.getElementById('wifi-ssid');
+  return sel?sel.value.trim():'';
+}
+
+async function scanWifi(silent){
+  const sel=document.getElementById('wifi-ssid');
+  const keep=getWifiSsid()||selSsid||(cfg.wifi_ssid||'');
+  if(!silent) setWifiResult('wait','Scansione reti WiFi…',true);
+  setWifiUiBusy(true);
+  try{
+    const r=await fetch('/api/wifi/scan');
+    const d=await r.json();
+    sel.innerHTML='';
+    if(!d.networks||!d.networks.length){
+      sel.innerHTML='<option value="">Nessuna rete trovata</option>';
+      if(!silent) setWifiResult('err','Nessuna rete trovata','','Premi ↻ per riprovare');
+      return;
+    }
+    d.networks.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{
+      const o=document.createElement('option');
+      o.value=n.ssid;
+      o.textContent=(n.ssid||'(nascosta)')+' · '+n.rssi+' dBm'+(n.secure?' 🔒':'');
+      sel.appendChild(o);
+    });
+    if(keep && [...sel.options].some(o=>o.value===keep)) sel.value=keep;
+    else sel.selectedIndex=0;
+    selSsid=sel.value;
+    sel.onchange=()=>{selSsid=sel.value;setWifiResult(null);};
+    if(!silent) setWifiResult(null);
+  }catch(e){
+    sel.innerHTML='<option value="">Errore scansione</option>';
+    if(!silent) setWifiResult('err','Errore scansione','','Controlla la connessione alla scheda');
+  }finally{
+    setWifiUiBusy(false);
+  }
+}
+
 async function connectWifi(){
-  if(!selSsid){toast('Seleziona una rete');return}
-  const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ssid:selSsid,password:document.getElementById('wifi-pass').value})});
-  const d=await r.json();
-  if(r.ok){toast('Connesso! IP '+d.ip);loadWifiStatus();pollStatus();}
-  else toast('Connessione fallita');
+  const ssid=getWifiSsid();
+  if(!ssid){setWifiResult('err','Scegli una rete dal menu');return;}
+  selSsid=ssid;
+  setWifiUiBusy(true);
+  setWifiResult('wait','Connessione in corso… fino a 18 secondi',true);
+  try{
+    const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ssid,password:document.getElementById('wifi-pass').value})});
+    const d=await r.json();
+    if(r.ok){
+      setWifiResult('ok','Connesso e salvato',false,`IP ${d.ip} · ${d.rssi} dBm · credenziali memorizzate`);
+      loadWifiStatus();
+      pollStatus();
+    }else{
+      setWifiResult('err','Connessione fallita',false,d.message||'Verifica password e riprova');
+    }
+  }catch(e){
+    setWifiResult('err','Comunicazione interrotta',false,'La scheda potrebbe essere ancora in connessione — attendi e ricarica la pagina');
+  }finally{
+    setWifiUiBusy(false);
+  }
 }
 
 async function resetWifi(){
@@ -510,17 +828,29 @@ function addDisplay(d={}){
       <div class="field"><label>ID</label><input class="dp-id" placeholder="bin3" value="${d.id||''}"></div>
       <div class="field"><label>Tipo</label><select class="dp-type"><option value="platform" ${type==='platform'?'selected':''}>Binario</option><option value="timetable" ${type==='timetable'?'selected':''}>Tabellone</option></select></div>
     </div>
-    <div class="field"><label>Indirizzo I2C (dec)</label><input class="dp-addr" type="number" min="60" max="127" value="${d.i2c_addr||60}"></div>
+    <div class="row2">
+      <div class="field"><label>Slot I2C (U9=0 … U16=7)</label>
+        <select class="dp-slot"><option value="255" ${d.i2c_slot==null||d.i2c_slot===255?'selected':''}>Bus principale</option>
+        ${[0,1,2,3,4,5,6,7].map(n=>`<option value="${n}" ${d.i2c_slot===n?'selected':''}>U${n+9}</option>`).join('')}</select></div>
+      <div class="field"><label>Indirizzo I2C (dec)</label><input class="dp-addr" type="number" min="60" max="127" value="${d.i2c_addr||60}"></div>
+    </div>
     <div class="dp-platform">
       <div class="row2">
         <div class="field"><label>N° binario</label><input class="dp-pnum" type="number" min="1" max="99" value="${d.platform_num||1}"></div>
+        <div class="field"><label>ID stazione (SIP)</label><input class="dp-stid" placeholder="castellina" value="${d.station_id||''}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Nome stazione</label><input class="dp-stname" placeholder="Castellina sui Monti" value="${d.station_name||''}"></div>
         <div class="field"><label>Ora partenza</label><input class="dp-time" placeholder="14:32" value="${d.departure_time||''}"></div>
       </div>
       <div class="field"><label>Destinazione</label><input class="dp-dest" placeholder="Milano Centrale" value="${d.destination||''}"></div>
       <div class="field"><label>Stato</label><input class="dp-status" placeholder="libero" value="${d.status||'libero'}"></div>
     </div>
     <div class="dp-timetable">
-      <div class="field"><label>Nome stazione</label><input class="dp-station" value="${d.station_name||'Stazione H0'}"></div>
+      <div class="row2">
+        <div class="field"><label>ID stazione (SIP)</label><input class="dp-stid" placeholder="castellina" value="${d.station_id||''}"></div>
+        <div class="field"><label>Nome stazione</label><input class="dp-station" value="${d.station_name||'Stazione H0'}"></div>
+      </div>
       <div class="card-title" style="margin-top:8px">Partenze</div>
       <div class="dp-rows"></div>
       <button class="btn btn-o" type="button" onclick="addDispRow(this.closest('.dyn-disp'))">+ Riga</button>
@@ -535,17 +865,24 @@ function buildDisplays(a){document.getElementById('disp-list').innerHTML=''; if(
 function getDisplays(){
   return[...document.querySelectorAll('#disp-list .dyn-disp')].map(el=>{
     const type=el.querySelector('.dp-type').value;
+    const slot=+el.querySelector('.dp-slot').value;
     const base={id:el.querySelector('.dp-id').value.trim(),type,i2c_addr:+el.querySelector('.dp-addr').value||60};
+    if(slot<8) base.i2c_slot=slot;
     if(type==='platform') return{...base,
       platform_num:+el.querySelector('.dp-pnum').value||1,
+      station_id:el.querySelector('.dp-stid').value.trim(),
+      station_name:el.querySelector('.dp-stname').value.trim(),
       destination:el.querySelector('.dp-dest').value,
       departure_time:el.querySelector('.dp-time').value,
       status:el.querySelector('.dp-status').value||'libero'};
-    return{...base,station_name:el.querySelector('.dp-station').value,
+    const o={...base,station_name:el.querySelector('.dp-station').value,
       rows:[...el.querySelectorAll('.dp-row')].map(r=>({
         time:r.querySelector('.dr-time').value,destination:r.querySelector('.dr-dest').value,
         platform:r.querySelector('.dr-bin').value,status:r.querySelector('.dr-st').value
       })).filter(x=>x.time||x.destination)};
+    const sid=el.querySelector('.dp-stid').value.trim();
+    if(sid) o.station_id=sid;
+    return o;
   }).filter(x=>x.id);
 }
 
@@ -665,14 +1002,19 @@ async function saveAll(){
     tof_threshold_mm:+document.getElementById('tof-th').value,
     boot_aspect_main:document.getElementById('boot-main').value,
     boot_aspect_shunt:document.getElementById('boot-shunt').value,
+    tca9548_addr:+document.getElementById('tca-addr').value||112,
+    tof_i2c_slot:+document.getElementById('tof-slot').value||0,
+    i2c_slots:getI2cSlots(),
     mqtt_broker:document.getElementById('broker').value.trim(),
     mqtt_port:+document.getElementById('port').value||1883,
+    info_mqtt_topic:document.getElementById('info-topic').value.trim()||'railway/info',
+    info_mqtt_enabled:document.getElementById('info-enabled').checked,
     mqtt_user:document.getElementById('mqtt-user').value.trim(),
     mqtt_pass:document.getElementById('mqtt-pass').value,
-    pin_map:mergePinMaps(),
-    sensors_rb:getRb(), tof_blocks:getTofRb(), displays:getDisplays(),
-    accessories:getAcc(), scenarios:getScn(), signals:getSig(), turnouts:getSw()
+    tof_blocks:getTofRb(), displays:getDisplays(),
+    scenarios:getScn()
   };
+  applyMuxBindingsToConfig(body);
   const r=await fetch('/api/cfg',{method:'POST',headers:authHJson(),body:JSON.stringify(body)});
   if(r.ok){toast('Salvato – riavvio…');setTimeout(()=>location.reload(),5000);}
   else if(r.status===401){toast('Accedi prima');document.getElementById('login').classList.add('show');}
@@ -689,6 +1031,8 @@ async function pollStatus(){
     document.getElementById('d-ip').textContent=s.ip||'—';
     document.getElementById('d-wifi').textContent=s.wifi_connected?(s.rssi+' dBm'):'AP';
     document.getElementById('d-heap').textContent=s.free_heap?Math.round(s.free_heap/1024)+' KB':'—';
+    boardStatus=s;
+    updateMuxLive();
     updateDashSummary(s.sensors,s.tof,s.signals,s.turnouts,s.accessories,s.scenarios);
     renderSensors('d-sens',s.sensors,s.tof);
     renderSignals('d-sig',s.signals);
@@ -825,6 +1169,7 @@ function fmtUp(s){if(!s)return'—';const h=Math.floor(s/3600),m=Math.floor((s%3
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
 
 loadCfg(); pollStatus(); setInterval(pollStatus,2000);
+document.getElementById('wifi-pass').addEventListener('keydown',e=>{if(e.key==='Enter')connectWifi();});
 document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 document.getElementById('login-user').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 </script>

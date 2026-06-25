@@ -65,7 +65,8 @@ WeMos D32R1
 └── Reset WiFi: GPIO 0 (BOOT, 3 s)
 ```
 
-Vedi [docs/CABLING.md](docs/CABLING.md) per schema plastico H0.
+Vedi [docs/HARDWARE.md](docs/HARDWARE.md) per lo schema elettrico PCB e
+[docs/CABLING.md](docs/CABLING.md) per il cablaggio plastico H0.
 
 ---
 
@@ -123,6 +124,7 @@ Applicate a tutti i segnali MUX e PCA9685 all'avvio.
 |-------|---------|
 | `command/set` | `{"accessory":"luci_sala","action":"on"}` |
 | `display/<id>/platform/status` | `in arrivo` |
+| `railway/info` | JSON SIP — aggiorna display per stazione/binario ([INFO_MQTT.md](docs/INFO_MQTT.md)) |
 | `accessories/state` | JSON stato relè |
 | `sensors/state` | JSON occupazione MUX |
 
@@ -140,6 +142,8 @@ Applicate a tutti i segnali MUX e PCA9685 all'avvio.
 |------|-----------|
 | [docs/PIANO.md](docs/PIANO.md) | Roadmap fasi 0–9 |
 | [docs/DISPLAY.md](docs/DISPLAY.md) | Binario e tabellone OLED |
+| [docs/INFO_MQTT.md](docs/INFO_MQTT.md) | Sistema informativo plastico (topic `railway/info`) |
+| [docs/HARDWARE.md](docs/HARDWARE.md) | Schema elettrico PCB ([PDF](docs/SCHEDA-H0.pdf)) |
 | [docs/CABLING.md](docs/CABLING.md) | Cablaggio plastico H0 |
 
 ---

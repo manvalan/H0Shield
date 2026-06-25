@@ -77,7 +77,12 @@ Stati: `libero` · `in arrivo` · `in partenza` · `ritardo` · `soppresso`
 
 ## MQTT
 
-Topic base: `railway/<hostname>/display/<id>/…`
+Due modalità (compatibili):
+
+1. **SIP — topic unico** `railway/info` con JSON: ogni display filtra per `station_id` + `platform` (o `display_id`). Vedi **[INFO_MQTT.md](INFO_MQTT.md)**.
+2. **Per-display** — topic dedicati sotto `railway/<hostname>/display/<id>/…`
+
+Topic base per-display: `railway/<hostname>/display/<id>/…`
 
 ### Binario
 

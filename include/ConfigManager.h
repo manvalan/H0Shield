@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "Config.h"
+#include "I2cBus.h"
 
 // ── Rocrail signal config entry ──────────────────────────────────────
 struct SignalConfig {
@@ -44,11 +45,18 @@ struct TimetableRowConfig {
     char status[12]     = "";
 };
 
+struct I2cSlotConfig {
+    I2cSlotMode mode = I2cSlotMode::MODE_AUTO;
+    char        elementId[16] = "";   // display id when mode=DISPLAY
+};
+
 struct DisplayConfig {
     char     id[16]           = "";
     DisplayType type          = DisplayType::PLATFORM;
+    uint8_t  i2cSlot          = 255;  // 255 = main bus (legacy); 0–7 = U9–U16
     uint8_t  i2cAddr          = 0x3C;
     uint8_t  platformNum      = 1;
+    char     stationId[24]    = "";   // slug SIP, es. "castellina"
     char     stationName[32]  = "Stazione H0";
     char     destination[32]  = "";
     char     departureTime[8] = "";
@@ -101,11 +109,16 @@ struct BoardConfig {
     uint16_t mqttPort     = 1883;
     char mqttUser[32]     = "";
     char mqttPass[32]     = "";          // runtime only, loaded from SecureStore
+    char infoMqttTopic[64]  = INFO_MQTT_TOPIC_DEFAULT;
+    bool infoMqttEnabled      = true;
     uint16_t sensorThreshold = 512;      // ADC threshold for occupancy
     bool     tofEnabled      = true;
     uint8_t  tofThresholdMm  = 35;       // dist < threshold → occupied
     char     bootAspectMain[12]  = "red";
     char     bootAspectShunt[12] = "stop";
+    uint8_t  tca9548Addr         = TCA9548A_ADDR_DEFAULT;
+    uint8_t  tofI2cSlot          = 0;   // slot with VL6180X (when used)
+    I2cSlotConfig i2cSlots[I2C_SLOTS] = {};
     ChannelRole pinMap[MUX_CHANNELS] = {};
 
     static constexpr uint8_t MAX_SIGNALS    = 8;
@@ -172,8 +185,24 @@ public:
                 sizeof(cfg.bootAspectMain));
         strlcpy(cfg.bootAspectShunt, doc["boot_aspect_shunt"] | cfg.bootAspectShunt,
                 sizeof(cfg.bootAspectShunt));
+        cfg.tca9548Addr = doc["tca9548_addr"] | cfg.tca9548Addr;
+        cfg.tofI2cSlot  = doc["tof_i2c_slot"] | cfg.tofI2cSlot;
         strlcpy(cfg.mqttUser,   doc["mqtt_user"]  | cfg.mqttUser,   sizeof(cfg.mqttUser));
         cfg.mqttPass[0] = '\0';   // never from JSON – loaded via SecureStore
+        strlcpy(cfg.infoMqttTopic, doc["info_mqtt_topic"] | cfg.infoMqttTopic,
+                sizeof(cfg.infoMqttTopic));
+        cfg.infoMqttEnabled = doc["info_mqtt_enabled"] | cfg.infoMqttEnabled;
+
+        for (uint8_t s = 0; s < I2C_SLOTS; s++) {
+            I2cSlotConfig def = {};
+            JsonArray i2Slots = doc["i2c_slots"].as<JsonArray>();
+            if (s < i2Slots.size()) {
+                JsonObject sl = i2Slots[s];
+                def.mode = I2cBus::parseMode(sl["mode"] | "auto");
+                strlcpy(def.elementId, sl["element_id"] | "", sizeof(def.elementId));
+            }
+            cfg.i2cSlots[s] = def;
+        }
 
         JsonArray arr = doc["pin_map"].as<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS && i < arr.size(); i++) {
@@ -229,8 +258,11 @@ public:
             const char* typeStr = dp["type"] | "platform";
             d.type = (strcmp(typeStr, "timetable") == 0)
                 ? DisplayType::TIMETABLE : DisplayType::PLATFORM;
+            d.i2cSlot = dp["i2c_slot"].isNull()
+                ? 255 : static_cast<uint8_t>(dp["i2c_slot"].as<uint8_t>());
             d.i2cAddr = static_cast<uint8_t>(dp["i2c_addr"] | 0x3C);
             d.platformNum = dp["platform_num"] | 1;
+            strlcpy(d.stationId, dp["station_id"] | "", sizeof(d.stationId));
             strlcpy(d.stationName, dp["station_name"] | "Stazione H0", sizeof(d.stationName));
             strlcpy(d.destination, dp["destination"] | "", sizeof(d.destination));
             strlcpy(d.departureTime, dp["departure_time"] | "", sizeof(d.departureTime));
@@ -294,11 +326,24 @@ public:
         doc["mqtt_broker"] = cfg.mqttBroker;
         doc["mqtt_port"]   = cfg.mqttPort;
         doc["mqtt_user"]   = cfg.mqttUser;
+        doc["info_mqtt_topic"]   = cfg.infoMqttTopic;
+        doc["info_mqtt_enabled"] = cfg.infoMqttEnabled;
         doc["sensor_threshold"] = cfg.sensorThreshold;
         doc["tof_enabled"]      = cfg.tofEnabled;
         doc["tof_threshold_mm"] = cfg.tofThresholdMm;
         doc["boot_aspect_main"]  = cfg.bootAspectMain;
         doc["boot_aspect_shunt"] = cfg.bootAspectShunt;
+        doc["tca9548_addr"]      = cfg.tca9548Addr;
+        doc["tof_i2c_slot"]      = cfg.tofI2cSlot;
+
+        JsonArray i2Arr = doc["i2c_slots"].to<JsonArray>();
+        for (uint8_t s = 0; s < I2C_SLOTS; s++) {
+            JsonObject sl = i2Arr.add<JsonObject>();
+            sl["slot"]       = s;
+            sl["mode"]       = I2cBus::modeName(cfg.i2cSlots[s].mode);
+            if (cfg.i2cSlots[s].elementId[0])
+                sl["element_id"] = cfg.i2cSlots[s].elementId;
+        }
 
         JsonArray arr = doc["pin_map"].to<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
@@ -345,8 +390,10 @@ public:
             JsonObject o = dpArr.add<JsonObject>();
             o["id"]            = d.id;
             o["type"]          = (d.type == DisplayType::TIMETABLE) ? "timetable" : "platform";
+            if (d.i2cSlot < I2C_SLOTS) o["i2c_slot"] = d.i2cSlot;
             o["i2c_addr"]      = d.i2cAddr;
             o["platform_num"]  = d.platformNum;
+            if (d.stationId[0]) o["station_id"] = d.stationId;
             o["station_name"]  = d.stationName;
             o["destination"]   = d.destination;
             o["departure_time"]= d.departureTime;

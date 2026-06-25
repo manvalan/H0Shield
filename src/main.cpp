@@ -15,6 +15,7 @@
 #include "TurnoutChannel.h"
 #include "RocrailProtocol.h"
 #include "HardwareProbe.h"
+#include "I2cBus.h"
 #include "WifiSetup.h"
 #include "LiveStatus.h"
 #include "DisplayManager.h"
@@ -37,6 +38,7 @@ ToFManager    tofMgr;
 DisplayManager displayMgr;
 AccessoryManager accessoryMgr;
 ScenarioManager  scenarioMgr;
+I2cBus           i2cBus;
 bool          tofPresent = false;
 
 #ifdef USE_PCA9685
@@ -111,14 +113,21 @@ void setup() {
 
     // ── Phase 2: Hardware init (all optional except WiFi/web) ─────────
     HardwareProbe hw;
-    hw.scanI2C();
+    i2cBus.begin(cfgMgr.cfg.tca9548Addr);
+    hw.scanI2C(i2cBus);
 
-    if (hw.vl6180x) {
+    uint8_t tofSlot = cfgMgr.cfg.tofI2cSlot;
+    if (tofSlot >= I2C_SLOTS) tofSlot = 0;
+    bool tofOnSlot = i2cBus.deviceAt(VL6180X_ADDR, tofSlot);
+    if (!tofOnSlot && hw.vl6180x) tofOnSlot = true;
+
+    if (tofOnSlot && cfgMgr.cfg.tofEnabled) {
+        i2cBus.selectSlot(tofSlot);
         tof.init();
         tof.configureDefault();
         tof.setTimeout(500);
         tofPresent = true;
-        Serial.println("[HW] VL6180X initialized");
+        Serial.printf("[HW] VL6180X on slot U%u\n", tofSlot + 9);
     }
     if (hw.pca9685) {
 #ifdef USE_PCA9685
@@ -136,7 +145,7 @@ void setup() {
                       hw.oled3d ? "0x3D" : "");
     }
 
-    displayMgr.begin(cfgMgr, hw);
+    displayMgr.begin(cfgMgr, hw, i2cBus);
 
     const uint8_t muxUsed = countConfiguredMuxChannels();
     if (muxUsed > 0) {
@@ -186,7 +195,7 @@ void setup() {
             accessoryMgr.handleCommand(id, cmd);
             accessoryMgr.publishState(mqtt);
         }
-    }, &displayMgr);
+    }, &displayMgr, &i2cBus);
 
     Serial.println("==== Boot complete ====\n");
     Serial.printf("==== Apri: http://%s/  oppure  http://%s.local/ ====\n",
@@ -438,6 +447,7 @@ void publishSensorStates() {
 void onMqttCommand(const String& topic, const String& payload) {
     Serial.printf("[MQTT] ← %s : %s\n", topic.c_str(), payload.c_str());
 
+    if (displayMgr.handleInfoMqtt(topic, payload)) return;
     if (displayMgr.handleMqtt(topic, payload)) return;
 
     // Delegate Rocrail XML topics

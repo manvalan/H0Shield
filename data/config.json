@@ -6,11 +6,25 @@
   "mqtt_broker": "",
   "mqtt_port": 1883,
   "mqtt_user": "",
+  "info_mqtt_topic": "railway/info",
+  "info_mqtt_enabled": true,
   "sensor_threshold": 512,
   "tof_enabled": true,
   "tof_threshold_mm": 35,
+  "tof_i2c_slot": 0,
+  "tca9548_addr": 112,
   "boot_aspect_main": "red",
   "boot_aspect_shunt": "stop",
+  "i2c_slots": [
+    {"slot": 0, "mode": "auto"},
+    {"slot": 1, "mode": "auto"},
+    {"slot": 2, "mode": "auto"},
+    {"slot": 3, "mode": "auto"},
+    {"slot": 4, "mode": "auto"},
+    {"slot": 5, "mode": "auto"},
+    {"slot": 6, "mode": "auto"},
+    {"slot": 7, "mode": "auto"}
+  ],
   "pin_map": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   "signals": [],
   "turnouts": [],
@@ -20,8 +34,11 @@
     {
       "id": "bin3",
       "type": "platform",
+      "i2c_slot": 1,
       "i2c_addr": 60,
       "platform_num": 3,
+      "station_id": "castellina",
+      "station_name": "Castellina sui Monti",
       "destination": "",
       "departure_time": "",
       "status": "libero"
@@ -29,8 +46,10 @@
     {
       "id": "tab1",
       "type": "timetable",
+      "i2c_slot": 2,
       "i2c_addr": 61,
-      "station_name": "Stazione H0",
+      "station_id": "castellina",
+      "station_name": "Castellina sui Monti",
       "rows": [
         { "time": "14:30", "destination": "Roma Termini", "platform": "3", "status": "" },
         { "time": "14:45", "destination": "Torino P.N.", "platform": "1", "status": "ritardo" }

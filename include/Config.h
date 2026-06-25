@@ -32,6 +32,8 @@
 // railway/{name}/sensors/state
 // railway/{name}/command/set
 // railway/{name}/status/heartbeat
+// railway/info  — sistema informativo plastico (JSON, vedi docs/INFO_MQTT.md)
+#define INFO_MQTT_TOPIC_DEFAULT "railway/info"
 
 // ── Rocrail MQTT topics (standard, fixed – NOT per-board) ────────────
 //   Signals:  subscribe command, publish feedback

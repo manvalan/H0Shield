@@ -11,6 +11,7 @@
 #include "SecureStore.h"
 #include "LiveStatus.h"
 #include "DisplayManager.h"
+#include "I2cBus.h"
 
 class WebConfig {
 public:
@@ -19,20 +20,24 @@ public:
 
     void begin(ConfigManager& cfgMgr, LiveStatus* live = nullptr,
                TestHandler testHandler = nullptr,
-               DisplayManager* displays = nullptr) {
+               DisplayManager* displays = nullptr,
+               I2cBus* i2c = nullptr) {
         _cfg         = &cfgMgr;
         _live        = live;
         _testHandler = testHandler;
         _displays    = displays;
+        _i2c         = i2c;
 
         _server.on("/", HTTP_GET, [this]() { _serveIndex(); });
         _server.on("/api/cfg",    HTTP_GET,  [this]() { _handleGet(); });
         _server.on("/api/cfg",    HTTP_POST, [this]() { _handlePost(); });
         _server.on("/api/status", HTTP_GET,  [this]() { _handleStatus(); });
+        _server.on("/api/board/discover", HTTP_GET, [this]() { _handleBoardDiscover(); });
         _server.on("/api/test",   HTTP_POST, [this]() { _handleTest(); });
         _server.on("/api/wifi/status", HTTP_GET,  [this]() { _handleWifiStatus(); });
         _server.on("/api/wifi/scan",   HTTP_GET,  [this]() { _handleWifiScan(); });
         _server.on("/api/wifi/connect", HTTP_POST, [this]() { _handleWifiConnect(); });
+        _server.on("/api/wifi/test",   HTTP_POST, [this]() { _handleWifiTest(); });
         _server.on("/api/wifi/reset",  HTTP_POST, [this]() { _handleWifiReset(); });
         _server.on("/api/auth/login",  HTTP_POST, [this]() { _handleAuthLogin(); });
         _server.on("/api/auth/check",  HTTP_GET,  [this]() { _handleAuthCheck(); });
@@ -53,6 +58,7 @@ private:
     LiveStatus*    _live        = nullptr;
     TestHandler    _testHandler;
     DisplayManager* _displays   = nullptr;
+    I2cBus*         _i2c        = nullptr;
     String         _authToken;
 
     bool _authRequired() const {
@@ -89,9 +95,29 @@ private:
         doc["tof_threshold_mm"] = _cfg->cfg.tofThresholdMm;
         doc["boot_aspect_main"]  = _cfg->cfg.bootAspectMain;
         doc["boot_aspect_shunt"] = _cfg->cfg.bootAspectShunt;
+        doc["tca9548_addr"]      = _cfg->cfg.tca9548Addr;
+        doc["tof_i2c_slot"]      = _cfg->cfg.tofI2cSlot;
+
+        JsonArray i2Arr = doc["i2c_slots"].to<JsonArray>();
+        for (uint8_t s = 0; s < I2C_SLOTS; s++) {
+            JsonObject sl = i2Arr.add<JsonObject>();
+            sl["slot"] = s;
+            sl["mode"] = I2cBus::modeName(_cfg->cfg.i2cSlots[s].mode);
+            if (_cfg->cfg.i2cSlots[s].elementId[0])
+                sl["element_id"] = _cfg->cfg.i2cSlots[s].elementId;
+            if (_i2c) {
+                const I2cSlotDiscovery& d = _i2c->slots[s];
+                sl["detected"]    = I2cBus::detectedName(d.type);
+                sl["detected_addr"] = d.addr;
+                sl["present"]     = d.present;
+            }
+        }
+
         doc["mqtt_broker"] = _cfg->cfg.mqttBroker;
         doc["mqtt_port"]   = _cfg->cfg.mqttPort;
         doc["mqtt_user"]   = _cfg->cfg.mqttUser;
+        doc["info_mqtt_topic"]   = _cfg->cfg.infoMqttTopic;
+        doc["info_mqtt_enabled"] = _cfg->cfg.infoMqttEnabled;
 
         JsonArray pmArr = doc["pin_map"].to<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
@@ -138,8 +164,10 @@ private:
             JsonObject o = dpArr.add<JsonObject>();
             o["id"]            = d.id;
             o["type"]          = (d.type == DisplayType::TIMETABLE) ? "timetable" : "platform";
+            if (d.i2cSlot < I2C_SLOTS) o["i2c_slot"] = d.i2cSlot;
             o["i2c_addr"]      = d.i2cAddr;
             o["platform_num"]  = d.platformNum;
+            if (d.stationId[0]) o["station_id"] = d.stationId;
             o["station_name"]  = d.stationName;
             o["destination"]   = d.destination;
             o["departure_time"]= d.departureTime;
@@ -224,6 +252,23 @@ private:
             strlcpy(_cfg->cfg.bootAspectMain, doc["boot_aspect_main"], sizeof(_cfg->cfg.bootAspectMain));
         if (doc["boot_aspect_shunt"].is<const char*>())
             strlcpy(_cfg->cfg.bootAspectShunt, doc["boot_aspect_shunt"], sizeof(_cfg->cfg.bootAspectShunt));
+        if (doc["tca9548_addr"].is<uint8_t>() || doc["tca9548_addr"].is<uint16_t>())
+            _cfg->cfg.tca9548Addr = doc["tca9548_addr"].as<uint8_t>();
+        if (doc["tof_i2c_slot"].is<uint8_t>())
+            _cfg->cfg.tofI2cSlot = doc["tof_i2c_slot"];
+
+        if (doc["i2c_slots"].is<JsonArray>()) {
+            uint8_t si = 0;
+            for (JsonObject sl : doc["i2c_slots"].as<JsonArray>()) {
+                if (si >= I2C_SLOTS) break;
+                _cfg->cfg.i2cSlots[si].mode =
+                    I2cBus::parseMode(sl["mode"] | "auto");
+                strlcpy(_cfg->cfg.i2cSlots[si].elementId,
+                        sl["element_id"] | "", sizeof(_cfg->cfg.i2cSlots[si].elementId));
+                si++;
+            }
+        }
+
         if (doc["mqtt_broker"].is<const char*>())
             strlcpy(_cfg->cfg.mqttBroker, doc["mqtt_broker"], sizeof(_cfg->cfg.mqttBroker));
         if (doc["mqtt_port"].is<uint16_t>())
@@ -232,6 +277,11 @@ private:
             strlcpy(_cfg->cfg.mqttUser, doc["mqtt_user"], sizeof(_cfg->cfg.mqttUser));
         if (doc["mqtt_pass"].is<const char*>() && doc["mqtt_pass"].as<String>().length() > 0)
             SecureStore::saveMqttPassword(doc["mqtt_pass"].as<String>());
+        if (doc["info_mqtt_topic"].is<const char*>())
+            strlcpy(_cfg->cfg.infoMqttTopic, doc["info_mqtt_topic"],
+                    sizeof(_cfg->cfg.infoMqttTopic));
+        if (doc["info_mqtt_enabled"].is<bool>())
+            _cfg->cfg.infoMqttEnabled = doc["info_mqtt_enabled"];
 
         JsonArray pmArr = doc["pin_map"].as<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS && i < (uint8_t)pmArr.size(); i++) {
@@ -287,8 +337,11 @@ private:
             const char* typeStr = dp["type"] | "platform";
             d.type = (strcmp(typeStr, "timetable") == 0)
                 ? DisplayType::TIMETABLE : DisplayType::PLATFORM;
+            d.i2cSlot = dp["i2c_slot"].isNull()
+                ? 255 : static_cast<uint8_t>(dp["i2c_slot"].as<uint8_t>());
             d.i2cAddr = static_cast<uint8_t>(dp["i2c_addr"] | 0x3C);
             d.platformNum = dp["platform_num"] | 1;
+            strlcpy(d.stationId, dp["station_id"] | "", sizeof(d.stationId));
             strlcpy(d.stationName, dp["station_name"] | "Stazione H0", sizeof(d.stationName));
             strlcpy(d.destination, dp["destination"] | "", sizeof(d.destination));
             strlcpy(d.departureTime, dp["departure_time"] | "", sizeof(d.departureTime));
@@ -490,6 +543,21 @@ private:
 
         if (_displays) _displays->appendStatus(doc.as<JsonObject>());
 
+        if (_i2c) {
+            JsonObject bi = doc["board"].to<JsonObject>();
+            bi["tca9548"]   = _i2c->hasMux;
+            bi["tca_addr"]  = _i2c->muxAddr;
+            JsonArray slots = bi["i2c_slots"].to<JsonArray>();
+            for (uint8_t s = 0; s < I2C_SLOTS; s++) {
+                JsonObject o = slots.add<JsonObject>();
+                o["slot"]     = s;
+                o["present"]  = _i2c->slots[s].present;
+                o["detected"] = I2cBus::detectedName(_i2c->slots[s].type);
+                o["addr"]     = _i2c->slots[s].addr;
+                o["mode"]     = I2cBus::modeName(_cfg->cfg.i2cSlots[s].mode);
+            }
+        }
+
         String out;
         serializeJson(doc, out);
         _server.send(200, "application/json", out);
@@ -512,6 +580,32 @@ private:
         String extra = doc["extra"] | "";
         _testHandler(type, id, cmd, extra);
         _server.send(200, "application/json", "{\"ok\":true}");
+    }
+
+    void _handleBoardDiscover() {
+        JsonDocument doc;
+        if (_i2c) {
+            _i2c->discoverAll();
+            doc["tca9548"]  = _i2c->hasMux;
+            doc["tca_addr"] = _i2c->muxAddr;
+            JsonArray arr = doc["slots"].to<JsonArray>();
+            for (uint8_t s = 0; s < I2C_SLOTS; s++) {
+                JsonObject o = arr.add<JsonObject>();
+                o["slot"]     = s;
+                o["connector"]= String("U") + String(s + 9);
+                o["present"]  = _i2c->slots[s].present;
+                o["detected"] = I2cBus::detectedName(_i2c->slots[s].type);
+                o["addr"]     = _i2c->slots[s].addr;
+                o["mode"]     = I2cBus::modeName(_cfg->cfg.i2cSlots[s].mode);
+                if (_cfg->cfg.i2cSlots[s].elementId[0])
+                    o["element_id"] = _cfg->cfg.i2cSlots[s].elementId;
+            }
+        } else {
+            doc["error"] = "i2c_unavailable";
+        }
+        String out;
+        serializeJson(doc, out);
+        _server.send(200, "application/json", out);
     }
 
     void _handleWifiStatus() {
@@ -544,6 +638,21 @@ private:
         _server.send(200, "application/json", out);
     }
 
+    void _sendWifiAttempt(const WiFiAttemptResult& r, bool saved = false) {
+        JsonDocument doc;
+        doc["ok"]      = r.ok;
+        doc["status"]  = wifiStatusLabel(r.status);
+        doc["message"] = wifiStatusMessageIt(r.status);
+        if (r.ok) {
+            doc["ip"]    = r.ip;
+            doc["rssi"]  = r.rssi;
+            doc["saved"] = saved;
+        }
+        String out;
+        serializeJson(doc, out);
+        _server.send(r.ok ? 200 : 502, "application/json", out);
+    }
+
     void _handleWifiConnect() {
         if (!_server.hasArg("plain")) {
             _server.send(400, "text/plain", "No body");
@@ -562,11 +671,39 @@ private:
         }
         const bool ok = connectToNetwork(*_cfg, ssid, pass);
         if (ok) {
-            _server.send(200, "application/json",
-                "{\"ok\":true,\"ip\":\"" + WiFi.localIP().toString() + "\"}");
+            WiFiAttemptResult r;
+            r.ok     = true;
+            r.status = WL_CONNECTED;
+            r.ip     = WiFi.localIP().toString();
+            r.rssi   = WiFi.RSSI();
+            _sendWifiAttempt(r, true);
         } else {
-            _server.send(502, "application/json", "{\"error\":\"connection_failed\"}");
+            WiFiAttemptResult r;
+            r.ok     = false;
+            r.status = WiFi.status();
+            _sendWifiAttempt(r, false);
         }
+    }
+
+    void _handleWifiTest() {
+        if (!_server.hasArg("plain")) {
+            _server.send(400, "text/plain", "No body");
+            return;
+        }
+        JsonDocument doc;
+        if (deserializeJson(doc, _server.arg("plain"))) {
+            _server.send(400, "text/plain", "Bad JSON");
+            return;
+        }
+        String ssid = doc["ssid"] | "";
+        String pass = doc["password"] | "";
+        if (ssid.isEmpty()) {
+            _server.send(400, "application/json",
+                         "{\"ok\":false,\"message\":\"Seleziona una rete\"}");
+            return;
+        }
+        WiFiAttemptResult r = testWiFiNetwork(*_cfg, ssid, pass);
+        _sendWifiAttempt(r, false);
     }
 
     void _handleAuthCheck() {

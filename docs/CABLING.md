@@ -2,6 +2,8 @@
 
 Riferimento per collegare WeMos D32R1, MUX, sensori, relè, I2C e Rocrail.
 
+> Schema elettrico della PCB: [HARDWARE.md](HARDWARE.md) · [SCHEDA-H0.pdf](SCHEDA-H0.pdf)
+
 ---
 
 ## WeMos D32R1 — pin principali
@@ -121,4 +123,4 @@ Config in tab **Scenari** o:
 
 ---
 
-*Vedi anche `docs/DISPLAY.md`, `docs/PIANO.md`, `README.md`.*
+*Vedi anche `docs/HARDWARE.md`, `docs/DISPLAY.md`, `docs/PIANO.md`, `README.md`.*
