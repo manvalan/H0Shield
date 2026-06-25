@@ -181,6 +181,7 @@ void loop() {
 
     // Turnout pulse watchdog (cut coil power after pulseDurationMs)
     rocrail.update(mux);
+    rocrail.syncLiveStatus();
 
     // Keep live status up to date (cheap, runs every loop)
     liveStatus.mqttConnected = mqtt.connected();

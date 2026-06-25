@@ -19,12 +19,24 @@ struct ToFLive {
     String   status;
 };
 
+struct SignalLamps {
+    bool r = false;
+    bool g = false;
+    bool v = false;
+};
+
+struct SignalLive {
+    uint8_t     type   = 0;   // 0 = MAIN, 1 = SHUNT
+    String      aspect;
+    SignalLamps lamps;
+};
+
 struct LiveStatus {
     bool   mqttConnected = false;
     int8_t rssi          = 0;
 
     std::map<uint8_t, SensorLive> sensors;
     ToFLive                       tof;
-    std::map<String, String>      signalStates;
+    std::map<String, SignalLive>  signals;
     std::map<String, String>      turnoutStates;
 };

@@ -29,7 +29,11 @@ class RocrailProtocol {
 public:
     // ── Registration ─────────────────────────────────────────────────
     void registerSignal(const String& id, SignalType type, SignalRGBChannel* ch) {
-        _signals[id] = { type, ch };
+        SignalEntry& e = _signals[id];
+        e.type   = type;
+        e.ch     = ch;
+        e.aspect = (type == SignalType::MAIN) ? "red" : "stop";
+        _initLiveSignal(id, type, e.aspect);
     }
 
     void registerTurnout(TurnoutChannel* t) {
@@ -99,14 +103,28 @@ public:
         }
     }
 
+    void syncLiveStatus() {
+        if (!_live) return;
+        for (auto& [id, e] : _signals) {
+            if (!e.ch) continue;
+            SignalLive& sl = _live->signals[id];
+            sl.type   = static_cast<uint8_t>(e.type);
+            sl.aspect = e.aspect;
+            sl.lamps.r = e.ch->r;
+            sl.lamps.g = e.ch->g;
+            sl.lamps.v = e.ch->b;
+        }
+    }
+
     bool hasTopic(const String& topic) const {
         return topic == ROCRAIL_TOPIC_SG_CMD || topic == ROCRAIL_TOPIC_SW_CMD;
     }
 
 private:
     struct SignalEntry {
-        SignalType       type;
+        SignalType        type;
         SignalRGBChannel* ch;
+        String            aspect;
     };
 
     std::map<String, SignalEntry>     _signals;
@@ -152,7 +170,15 @@ private:
 
         Serial.printf("[ROCR] Signal %s → %s\n", id.c_str(), aspect.c_str());
 
-        if (_live) _live->signalStates[id] = aspect;
+        entry.aspect = aspect;
+        if (_live) {
+            SignalLive& sl = _live->signals[id];
+            sl.type   = static_cast<uint8_t>(entry.type);
+            sl.aspect = aspect;
+            sl.lamps.r = entry.ch->r;
+            sl.lamps.g = entry.ch->g;
+            sl.lamps.v = entry.ch->b;
+        }
     }
 
     // ── Turnout handler ───────────────────────────────────────────────
@@ -230,5 +256,13 @@ private:
         e.ch->r = r;
         e.ch->g = g;
         e.ch->b = b;
+    }
+
+    void _initLiveSignal(const String& id, SignalType type, const String& aspect) {
+        if (!_live) return;
+        SignalLive& sl = _live->signals[id];
+        sl.type   = static_cast<uint8_t>(type);
+        sl.aspect = aspect;
+        sl.lamps  = {};
     }
 };

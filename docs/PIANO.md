@@ -74,13 +74,12 @@ Modalità: `clock` · `timetable` · `status` · `event`.
 
 ---
 
-### Fase 2 — Grafica segnali (MAIN / SHUNT)
+### Fase 2 — Grafica segnali (MAIN / SHUNT) ✅ (completata)
 
-- Componenti SVG inline in `index.html` (zero librerie JS)
-- MAIN: palo + 3 lampade (R, Y, G)
-- SHUNT: layout A/B/C (stop, go, oblique)
-- `/api/status` esteso: `{ type, aspect, lamps: { r, g, v } }`
-- Tab test: pulsanti aspect per ogni segnale → `POST /api/test`
+- SVG inline: semaforo MAIN (3 lampade verticali) e SHUNT (A/B/C)
+- `/api/status`: `{ type, aspect, lamps: { r, g, v } }`
+- Dashboard: griglia segnali con lampade accese + glow
+- Test manuale: pulsanti R/Y/V o Stop/Via/Obliq → `POST /api/test`
 
 ---
 

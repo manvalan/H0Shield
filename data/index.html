@@ -72,6 +72,17 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .tof-fill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,var(--accent),var(--accent2));transition:height .3s}
 .tof-th-line{position:absolute;left:0;right:0;border-top:2px dashed #fbbf24;z-index:2}
 .tof-labels{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted)}
+.sig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.sig-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center}
+.sig-card h4{font-size:.78rem;margin:6px 0 2px;font-weight:600}
+.sig-meta{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.lamp-off{fill:#27272a;stroke:#52525b;stroke-width:1}
+.lamp-r-on{fill:#ef4444;stroke:#fca5a5;stroke-width:1;filter:drop-shadow(0 0 5px rgba(239,68,68,.55))}
+.lamp-y-on{fill:#eab308;stroke:#fde047;stroke-width:1;filter:drop-shadow(0 0 5px rgba(234,179,8,.5))}
+.lamp-g-on{fill:#22c55e;stroke:#86efac;stroke-width:1;filter:drop-shadow(0 0 5px rgba(34,197,94,.5))}
+.sig-test{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px}
+.sig-test button{font-size:.62rem;padding:4px 7px;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:6px;cursor:pointer}
+.sig-test button:active{opacity:.7;border-color:var(--accent);color:var(--text)}
 @media(max-width:480px){.stats{grid-template-columns:1fr}.row2{grid-template-columns:1fr}.mux-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -404,9 +415,29 @@ async function pollStatus(){
     document.getElementById('d-up').textContent=fmtUp(s.uptime_s);
     document.getElementById('d-ip').textContent=s.ip||'—';
     renderSensors('d-sens',s.sensors,s.tof);
-    renderTiles('d-sig',s.signals,(k,v)=>({id:k,meta:'Aspetto',chip:v,cls:'chip-n'}));
+    renderSignals('d-sig',s.signals);
     renderTiles('d-sw',s.turnouts,(k,v)=>({id:k,meta:'Pos',chip:v,cls:'chip-n'}));
   }catch(e){}
+}
+function lampCls(on,color){return on?'lamp-'+color+'-on':'lamp-off'}
+function svgMain(l){return`<svg viewBox="0 0 52 80" width="52" height="68"><rect x="24" y="22" width="4" height="54" fill="#3f3f46" rx="1"/><circle cx="26" cy="12" r="9" class="${lampCls(l.r,'r')}"/><circle cx="26" cy="30" r="9" class="${lampCls(l.g,'y')}"/><circle cx="26" cy="48" r="9" class="${lampCls(l.v,'g')}"/></svg>`}
+function svgShunt(l){return`<svg viewBox="0 0 64 72" width="64" height="68"><line x1="26" y1="48" x2="26" y2="28" stroke="#3f3f46" stroke-width="3"/><line x1="26" y1="28" x2="14" y2="16" stroke="#3f3f46" stroke-width="2"/><line x1="26" y1="28" x2="38" y2="16" stroke="#3f3f46" stroke-width="2"/><circle cx="26" cy="54" r="8" class="${lampCls(l.r,'r')}"/><circle cx="14" cy="14" r="8" class="${lampCls(l.g,'y')}"/><circle cx="38" cy="14" r="8" class="${lampCls(l.v,'g')}"/></svg>`}
+function renderSignals(id,signals){
+  const el=document.getElementById(id); const e=signals?Object.entries(signals):[];
+  if(!e.length){el.innerHTML='<div class="empty">Nessun segnale configurato</div>';return}
+  el.innerHTML='<div class="sig-grid">'+e.map(([sid,sg])=>{
+    const main=sg.type===0, lamps=sg.lamps||{};
+    const svg=main?svgMain(lamps):svgShunt(lamps);
+    const tests=main?[['red','R'],['yellow','Y'],['green','V']]:[['stop','Stop'],['go','Via'],['oblique','Obliq']];
+    const btns=tests.map(([c,l])=>`<button onclick="testSignal('${sid}','${c}')">${l}</button>`).join('');
+    return`<div class="sig-card">${svg}<h4>${sid}</h4><div class="sig-meta">${main?'MAIN':'SHUNT'} · ${sg.aspect||'—'}</div><div class="sig-test">${btns}</div></div>`;
+  }).join('')+'</div>';
+}
+async function testSignal(id,cmd){
+  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'signal',id,cmd})});
+  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
+  if(r.ok){toast('Segnale '+id+' → '+cmd);pollStatus();}
+  else toast('Test fallito');
 }
 function renderSensors(id,muxSensors,tof){
   const el=document.getElementById(id); let html='';

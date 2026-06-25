@@ -313,8 +313,14 @@ private:
             tof["status"]       = _live->tof.status;
 
             JsonObject sigs = doc["signals"].to<JsonObject>();
-            for (auto& [id, asp] : _live->signalStates) {
-                sigs[id] = asp;
+            for (auto& [id, sg] : _live->signals) {
+                JsonObject o = sigs[id].to<JsonObject>();
+                o["type"]   = sg.type;
+                o["aspect"] = sg.aspect;
+                JsonObject lamps = o["lamps"].to<JsonObject>();
+                lamps["r"] = sg.lamps.r;
+                lamps["g"] = sg.lamps.g;
+                lamps["v"] = sg.lamps.v;
             }
             JsonObject sw = doc["turnouts"].to<JsonObject>();
             for (auto& [id, st] : _live->turnoutStates) {
