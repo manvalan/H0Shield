@@ -20,10 +20,23 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .tab{flex:1;min-width:70px;padding:9px 6px;border:none;background:none;color:var(--muted);font-size:.78rem;font-weight:600;cursor:pointer;border-radius:var(--rs) var(--rs) 0 0}
 .tab.active{color:var(--text);background:var(--surface);box-shadow:inset 0 -2px 0 var(--accent)}
 .panel{display:none;padding:16px;max-width:680px;margin:0 auto 80px}
+.panel-dash{max-width:920px}
 .panel.active{display:block}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px}
 .card-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px}
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.dash-summary{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.sum-pill{font-size:.72rem;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.sum-pill.warn{border-color:rgba(239,68,68,.4);color:#fca5a5;background:rgba(239,68,68,.08)}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-head span:first-child{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.sec-badge{font-size:.65rem;padding:2px 8px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rail-seg{height:10px;border-radius:4px;margin:8px 0 6px;background:linear-gradient(90deg,#27272a 0%,#27272a 100%);border:1px solid var(--border);position:relative;overflow:hidden}
+.rail-seg::before,.rail-seg::after{content:'';position:absolute;top:2px;bottom:2px;width:3px;background:#52525b;border-radius:1px}
+.rail-seg::before{left:8px}.rail-seg::after{right:8px}
+.rail-seg.occ{background:linear-gradient(90deg,rgba(239,68,68,.35),rgba(239,68,68,.15));border-color:rgba(239,68,68,.35)}
+.rail-seg.free{background:linear-gradient(90deg,rgba(34,197,94,.25),rgba(34,197,94,.08));border-color:rgba(34,197,94,.25)}
 .stat{background:linear-gradient(145deg,var(--surface),var(--surface2));border:1px solid var(--border);border-radius:var(--r);padding:14px}
 .stat-l{font-size:.65rem;color:var(--muted);margin-bottom:2px}
 .stat-v{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums}
@@ -89,7 +102,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .sw-meta{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .sw-busy{animation:sw-pulse .35s ease-in-out infinite alternate}
 @keyframes sw-pulse{from{opacity:1;filter:drop-shadow(0 0 5px #fbbf24)}to{opacity:.45}}
-@media(max-width:480px){.stats{grid-template-columns:1fr}.row2{grid-template-columns:1fr}.mux-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.stats{grid-template-columns:repeat(2,1fr)}.dash-grid{grid-template-columns:1fr}.row2{grid-template-columns:1fr}.mux-grid{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:481px) and (max-width:720px){.dash-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -118,16 +132,28 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 </header>
 
 <!-- DASHBOARD -->
-<section id="p-dash" class="panel active">
+<section id="p-dash" class="panel panel-dash active">
   <div class="stats">
     <div class="stat"><div class="stat-l">Uptime</div><div class="stat-v" id="d-up">—</div></div>
     <div class="stat"><div class="stat-l">IP</div><div class="stat-v" id="d-ip">—</div></div>
     <div class="stat"><div class="stat-l">WiFi</div><div class="stat-v" id="d-wifi">—</div></div>
-    <div class="stat"><div class="stat-l">Rete salvata</div><div class="stat-v" id="d-saved">—</div></div>
+    <div class="stat"><div class="stat-l">Heap</div><div class="stat-v" id="d-heap">—</div></div>
   </div>
-  <div class="card"><div class="card-title">Sensori live</div><div id="d-sens" class="empty">Nessun dato</div></div>
-  <div class="card"><div class="card-title">Segnali</div><div id="d-sig" class="empty">—</div></div>
-  <div class="card"><div class="card-title">Scambi</div><div id="d-sw" class="empty">—</div></div>
+  <div id="dash-summary" class="dash-summary"></div>
+  <div class="card">
+    <div class="section-head"><span>Binari &amp; occupazione</span><span id="cnt-bin" class="sec-badge">0</span></div>
+    <div id="d-sens" class="empty">Nessun dato</div>
+  </div>
+  <div class="dash-grid">
+    <div class="card">
+      <div class="section-head"><span>Segnali</span><span id="cnt-sig" class="sec-badge">0</span></div>
+      <div id="d-sig" class="empty">—</div>
+    </div>
+    <div class="card">
+      <div class="section-head"><span>Scambi</span><span id="cnt-sw" class="sec-badge">0</span></div>
+      <div id="d-sw" class="empty">—</div>
+    </div>
+  </div>
 </section>
 
 <!-- RETE -->
@@ -329,7 +355,6 @@ function mergePinMaps(){
 async function loadWifiStatus(){
   try{
     const r=await fetch('/api/wifi/status'); const w=await r.json();
-    document.getElementById('d-saved').textContent=w.saved_ssid||'—';
     document.getElementById('d-wifi').textContent=w.connected?w.rssi+' dBm':'Offline';
     document.getElementById('wifi-status').innerHTML=`
       <div class="tile"><div><div class="tile-id">${w.connected?w.ssid:'Non connesso'}</div>
@@ -420,10 +445,31 @@ async function pollStatus(){
     document.getElementById('mqtt-pill').className='pill '+(s.mqtt?'on':'off');
     document.getElementById('d-up').textContent=fmtUp(s.uptime_s);
     document.getElementById('d-ip').textContent=s.ip||'—';
+    document.getElementById('d-wifi').textContent=s.wifi_connected?(s.rssi+' dBm'):'AP';
+    document.getElementById('d-heap').textContent=s.free_heap?Math.round(s.free_heap/1024)+' KB':'—';
+    updateDashSummary(s.sensors,s.tof,s.signals,s.turnouts);
     renderSensors('d-sens',s.sensors,s.tof);
     renderSignals('d-sig',s.signals);
     renderTurnouts('d-sw',s.turnouts);
   }catch(e){}
+}
+function updateDashSummary(sensors,tof,signals,turnouts){
+  let tracks=0, occ=0;
+  if(sensors) Object.values(sensors).forEach(v=>{tracks++;if(v.occupied)occ++});
+  if(tof&&tof.present){tracks++;if(tof.occupied&&tof.valid)occ++}
+  const sigN=signals?Object.keys(signals).length:0;
+  const swN=turnouts?Object.keys(turnouts).length:0;
+  const swBusy=turnouts?Object.values(turnouts).filter(t=>t.busy).length:0;
+  document.getElementById('cnt-bin').textContent=tracks;
+  document.getElementById('cnt-sig').textContent=sigN;
+  document.getElementById('cnt-sw').textContent=swN;
+  const el=document.getElementById('dash-summary');
+  if(!tracks&&!sigN&&!swN){el.innerHTML='';return}
+  el.innerHTML=[
+    tracks?`<span class="sum-pill ${occ?'warn':''}">${occ}/${tracks} binari occupati</span>`:'',
+    sigN?`<span class="sum-pill">${sigN} segnali attivi</span>`:'',
+    swN?`<span class="sum-pill">${swN} scambi${swBusy?' · '+swBusy+' in movimento':''}</span>`:''
+  ].filter(Boolean).join('');
 }
 function svgTurnout(pos,busy){
   const st=pos==='straight', dv=pos==='turnout';
@@ -474,13 +520,15 @@ function renderSensors(id,muxSensors,tof){
     const label=v.id||('MUX '+ch);
     const pct=Math.min(100,Math.round((v.raw||0)/4095*100));
     const thPct=Math.min(100,Math.round((v.threshold||512)/4095*100));
-    html+=`<div class="track-row"><div class="track-head"><span class="track-id">${label}</span><span class="chip ${v.occupied?'chip-busy':'chip-ok'}">${v.occupied?'Occupato':'Libero'}</span></div><div class="track-bar"><div class="track-fill" style="width:${pct}%"></div><div class="track-th" style="left:${thPct}%"></div></div><div class="tof-labels"><span>ADC ${v.raw||0}</span><span>soglia ${v.threshold||512}</span></div></div>`;
+    const rail=v.occupied?'occ':'free';
+    html+=`<div class="track-row"><div class="track-head"><span class="track-id">${label}</span><span class="chip ${v.occupied?'chip-busy':'chip-ok'}">${v.occupied?'Occupato':'Libero'}</span></div><div class="rail-seg ${rail}"></div><div class="track-bar"><div class="track-fill" style="width:${pct}%"></div><div class="track-th" style="left:${thPct}%"></div></div><div class="tof-labels"><span>ADC ${v.raw||0}</span><span>soglia ${v.threshold||512}</span></div></div>`;
   });
   if(tof&&tof.present){
     const dist=tof.distance_mm||0, th=tof.threshold_mm||35;
     const hPct=Math.min(100,Math.round(dist/100*100));
     const thTop=Math.max(0,100-Math.round(th/100*100));
-    html+=`<div class="track-row"><div class="track-head"><span class="track-id">ToF VL6180X</span><span class="chip ${tof.occupied?'chip-busy':'chip-ok'}">${tof.valid?(tof.occupied?'Occupato':'Libero'):tof.status}</span></div><div class="tof-gauge"><div class="tof-fill" style="height:${hPct}%"></div><div class="tof-th-line" style="bottom:${thTop}%"></div></div><div class="tof-labels"><span>${dist} mm</span><span>soglia ${th} mm</span></div></div>`;
+    const rail=(tof.occupied&&tof.valid)?'occ':'free';
+    html+=`<div class="track-row"><div class="track-head"><span class="track-id">ToF VL6180X</span><span class="chip ${tof.occupied?'chip-busy':'chip-ok'}">${tof.valid?(tof.occupied?'Occupato':'Libero'):tof.status}</span></div><div class="rail-seg ${rail}"></div><div class="tof-gauge"><div class="tof-fill" style="height:${hPct}%"></div><div class="tof-th-line" style="bottom:${thTop}%"></div></div><div class="tof-labels"><span>${dist} mm</span><span>soglia ${th} mm</span></div></div>`;
   }
   el.innerHTML=html||'<div class="empty">Nessun sensore configurato</div>';
 }

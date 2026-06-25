@@ -92,25 +92,14 @@ Modalità: `clock` · `timetable` · `status` · `event`.
 
 ---
 
-### Fase 4 — Dashboard ridisegnata
+### Fase 4 — Dashboard ridisegnata ✅ (completata)
 
-Struttura:
+- Layout wide (920px): stats 4 colonne, summary pill, binari full-width
+- Griglia 2 colonne Segnali | Scambi (responsive)
+- Segmenti binario visivi (verde/rosso) + barre ADC/ToF
+- Badge contatori per sezione
 
-1. Stats (uptime, IP, WiFi, MQTT)
-2. **Binari** — segmenti occupazione (MUX + ToF)
-3. **Segnali** — griglia SVG
-4. **Scambi** — griglia SVG
-5. **Accessori** — (Fase 8) toggle luci/PL
-
-Poll `/api/status` ogni 2 s; palette esistente (`--bg`, `--accent`).
-
----
-
-### Fase 5 — ToF completo in UI
-
-- `ToFManager`: soglia da config, occupazione, publish on change
-- Dashboard: gauge distanza + linea soglia
-- Integrazione tab Sensori
+### Fase 5 — ToF completo in UI ✅ (completata in Fase 1)
 
 ---
 
