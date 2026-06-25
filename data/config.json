@@ -7,8 +7,11 @@
   "mqtt_port": 1883,
   "mqtt_user": "",
   "sensor_threshold": 512,
+  "tof_enabled": true,
+  "tof_threshold_mm": 35,
   "pin_map": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   "signals": [],
   "turnouts": [],
-  "sensors_rb": []
+  "sensors_rb": [],
+  "tof_blocks": []
 }

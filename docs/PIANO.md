@@ -64,13 +64,13 @@ Modalità: `clock` · `timetable` · `status` · `event`.
 
 ---
 
-### Fase 1 — Modello occupazione unificato
+### Fase 1 — Modello occupazione unificato ✅ (completata)
 
-- Estendere `/api/status` con `raw` ADC e soglia per sensore MUX
-- Config: `tof_threshold_mm`, `tof_enabled`
-- ToF: `dist < soglia` → occupato; `dist ≥ soglia` → libero
-- Feedback Rocrail `<fb>` per blocchi ToF (`tof_blocks[]`)
-- Tab **Sensori**: slider soglia ToF + anteprima barra distanza
+- `/api/status` con sensori MUX: `raw`, `threshold`, `id`, `occupied`
+- ToF: `tof_threshold_mm`, `tof_enabled`, occupazione dist &lt; soglia
+- `tof_blocks[]` → feedback Rocrail `<fb>`
+- Tab Sensori: soglia ToF + blocchi Rocrail
+- Dashboard: barre ADC + gauge ToF
 
 ---
 

@@ -6,7 +6,7 @@
 #include "ChannelObjects.h"
 #include "TurnoutChannel.h"
 #include "MQTTManager.h"
-#include "WebConfig.h"
+#include "LiveStatus.h"
 
 /**
  * Rocrail MQTT protocol adapter.
@@ -41,6 +41,14 @@ public:
         _sensorsRb[muxCh] = rocrailId;
     }
 
+    void registerToFBlock(const String& rocrailId) {
+        if (rocrailId.isEmpty()) return;
+        for (const auto& id : _tofBlocks) {
+            if (id == rocrailId) return;
+        }
+        _tofBlocks.push_back(rocrailId);
+    }
+
     void setLiveStatus(LiveStatus* live) { _live = live; }
 
     // ── Call once after MQTT is connected ────────────────────────────
@@ -66,14 +74,22 @@ public:
     // Topic: rocrail/service/info  XML: <fb id="bk1" state="free|occupied"/>
     void publishSensorFeedback(uint8_t muxCh, bool occupied, MQTTManager& mqtt) {
         auto it = _sensorsRb.find(muxCh);
-        if (it == _sensorsRb.end()) return;   // not mapped to Rocrail
+        if (it == _sensorsRb.end()) return;
+        publishBlockFeedback(it->second, occupied, mqtt);
+    }
 
-        const String& id  = it->second;
-        String state      = occupied ? "occupied" : "free";
-        String xml        = "<fb id=\"" + id + "\" state=\"" + state + "\"/>";
+    void publishToFFeedback(bool occupied, MQTTManager& mqtt) {
+        for (const auto& id : _tofBlocks) {
+            publishBlockFeedback(id, occupied, mqtt);
+        }
+    }
+
+    void publishBlockFeedback(const String& rocrailId, bool occupied, MQTTManager& mqtt) {
+        if (rocrailId.isEmpty()) return;
+        String state = occupied ? "occupied" : "free";
+        String xml   = "<fb id=\"" + rocrailId + "\" state=\"" + state + "\"/>";
         mqtt.publishRaw(ROCRAIL_TOPIC_SW_FB, xml, false);
-        Serial.printf("[ROCR] Sensor %s (ch%u) → %s\n",
-                      id.c_str(), muxCh, state.c_str());
+        Serial.printf("[ROCR] Block %s → %s\n", rocrailId.c_str(), state.c_str());
     }
 
     // ── Turnout pulse watchdog – call every loop() ───────────────────
@@ -96,6 +112,7 @@ private:
     std::map<String, SignalEntry>     _signals;
     std::map<String, TurnoutChannel*> _turnouts;
     std::map<uint8_t, String>         _sensorsRb;
+    std::vector<String>               _tofBlocks;
     LiveStatus*                       _live = nullptr;
 
     // ── XML helpers ───────────────────────────────────────────────────

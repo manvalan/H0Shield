@@ -16,6 +16,7 @@
 #include "RocrailProtocol.h"
 #include "HardwareProbe.h"
 #include "WifiSetup.h"
+#include "LiveStatus.h"
 
 // ── Globals ──────────────────────────────────────────────────────────
 ConfigManager cfgMgr;
@@ -131,7 +132,11 @@ void setup() {
     });
 
     // ToF manager (only if sensor present)
-    if (tofPresent) tofMgr.begin(tof, mqtt, cfgMgr);
+    if (tofPresent) {
+        tofMgr.begin(tof, mqtt, cfgMgr, &rocrail, &liveStatus, true);
+    } else {
+        liveStatus.tof.present = false;
+    }
 
     // ── Phase 5: Web config UI ────────────────────────────────────────
     webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
@@ -181,7 +186,17 @@ void loop() {
     liveStatus.mqttConnected = mqtt.connected();
     liveStatus.rssi          = (int8_t)WiFi.RSSI();
     for (auto& [ch, s] : sensors) {
-        liveStatus.sensorStates[ch] = s->occupied;
+        SensorLive& ls = liveStatus.sensors[ch];
+        ls.occupied  = s->occupied;
+        ls.raw       = s->rawValue;
+        ls.threshold = s->threshold;
+        ls.rocrailId = "";
+        for (uint8_t i = 0; i < cfgMgr.cfg.numSensorsRb; i++) {
+            if (cfgMgr.cfg.sensorsRb[i].muxCh == ch) {
+                ls.rocrailId = cfgMgr.cfg.sensorsRb[i].rocrailId;
+                break;
+            }
+        }
     }
     for (auto& t : turnouts) {
         liveStatus.turnoutStates[t->rocrailId] = t->stateStr();
@@ -241,9 +256,17 @@ void buildRocrailObjects() {
                       sr.rocrailId, sr.muxCh);
     }
 
-    Serial.printf("[ROCR] %u signals, %u turnouts, %u sensor-rb registered\n",
+    for (uint8_t i = 0; i < cfgMgr.cfg.numTofBlocks; i++) {
+        const ToFBlockConfig& tb = cfgMgr.cfg.tofBlocks[i];
+        if (tb.rocrailId[0] == '\0') continue;
+        rocrail.registerToFBlock(tb.rocrailId);
+        Serial.printf("[ROCR] ToF block '%s' (threshold %u mm)\n",
+                      tb.rocrailId, tb.thresholdMm ? tb.thresholdMm : cfgMgr.cfg.tofThresholdMm);
+    }
+
+    Serial.printf("[ROCR] %u signals, %u turnouts, %u sensor-rb, %u tof-blocks registered\n",
                   cfgMgr.cfg.numSignals, cfgMgr.cfg.numTurnouts,
-                  cfgMgr.cfg.numSensorsRb);
+                  cfgMgr.cfg.numSensorsRb, cfgMgr.cfg.numTofBlocks);
 }
 
 // ── Phase 3: populate channel objects from config ────────────────────

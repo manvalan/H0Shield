@@ -9,28 +9,7 @@
 #include "ConfigManager.h"
 #include "WifiSetup.h"
 #include "SecureStore.h"
-
-/**
- * Lightweight configuration web server (port 80).
- *   GET  /            → config UI  (index.html from LittleFS)
- *   GET  /api/cfg     → current config as JSON
- *   POST /api/cfg     → update config, saves & reboots
- *   GET  /api/status  → live status (uptime, IP, RSSI, MQTT, objects)
- *   POST /api/test    → manual test: signal aspect or turnout command
- */
-
-// Live-state provider injected by main.cpp
-struct LiveStatus {
-    bool   mqttConnected = false;
-    int8_t rssi          = 0;
-
-    // Sensors: muxCh → occupied
-    std::map<uint8_t, bool>   sensorStates;
-    // Signals: rocrailId → aspect string
-    std::map<String, String>  signalStates;
-    // Turnouts: rocrailId → "straight"|"turnout"
-    std::map<String, String>  turnoutStates;
-};
+#include "LiveStatus.h"
 
 class WebConfig {
 public:
@@ -102,6 +81,8 @@ private:
         doc["web_user"]    = _cfg->cfg.webUser;
         doc["has_web_pass"]= _authRequired();
         doc["sensor_threshold"] = _cfg->cfg.sensorThreshold;
+        doc["tof_enabled"]      = _cfg->cfg.tofEnabled;
+        doc["tof_threshold_mm"] = _cfg->cfg.tofThresholdMm;
         doc["mqtt_broker"] = _cfg->cfg.mqttBroker;
         doc["mqtt_port"]   = _cfg->cfg.mqttPort;
         doc["mqtt_user"]   = _cfg->cfg.mqttUser;
@@ -137,6 +118,13 @@ private:
             o["mux_ch"]     = _cfg->cfg.sensorsRb[i].muxCh;
         }
 
+        JsonArray tbArr = doc["tof_blocks"].to<JsonArray>();
+        for (uint8_t i = 0; i < _cfg->cfg.numTofBlocks; i++) {
+            JsonObject o = tbArr.add<JsonObject>();
+            o["rocrail_id"]   = _cfg->cfg.tofBlocks[i].rocrailId;
+            o["threshold_mm"] = _cfg->cfg.tofBlocks[i].thresholdMm;
+        }
+
         String out;
         serializeJson(doc, out);
         _server.send(200, "application/json", out);
@@ -165,6 +153,10 @@ private:
         }
         if (doc["sensor_threshold"].is<uint16_t>())
             _cfg->cfg.sensorThreshold = doc["sensor_threshold"];
+        if (doc["tof_enabled"].is<bool>())
+            _cfg->cfg.tofEnabled = doc["tof_enabled"];
+        if (doc["tof_threshold_mm"].is<uint8_t>() || doc["tof_threshold_mm"].is<uint16_t>())
+            _cfg->cfg.tofThresholdMm = doc["tof_threshold_mm"].as<uint8_t>();
         if (doc["mqtt_broker"].is<const char*>())
             strlcpy(_cfg->cfg.mqttBroker, doc["mqtt_broker"], sizeof(_cfg->cfg.mqttBroker));
         if (doc["mqtt_port"].is<uint16_t>())
@@ -209,6 +201,14 @@ private:
             SensorRbConfig& sr = _cfg->cfg.sensorsRb[_cfg->cfg.numSensorsRb++];
             strlcpy(sr.rocrailId, rb["rocrail_id"] | "", sizeof(sr.rocrailId));
             sr.muxCh = rb["mux_ch"] | 0;
+        }
+
+        _cfg->cfg.numTofBlocks = 0;
+        for (JsonObject tb : doc["tof_blocks"].as<JsonArray>()) {
+            if (_cfg->cfg.numTofBlocks >= BoardConfig::MAX_TOF_BLOCKS) break;
+            ToFBlockConfig& t = _cfg->cfg.tofBlocks[_cfg->cfg.numTofBlocks++];
+            strlcpy(t.rocrailId, tb["rocrail_id"] | "", sizeof(t.rocrailId));
+            t.thresholdMm = tb["threshold_mm"] | 0;
         }
 
         // ── Channel conflict check ─────────────────────────────────────
@@ -294,9 +294,24 @@ private:
 
         if (_live) {
             JsonObject sens = doc["sensors"].to<JsonObject>();
-            for (auto& [ch, occ] : _live->sensorStates) {
-                sens[String(ch)] = occ;
+            for (auto& [ch, s] : _live->sensors) {
+                JsonObject o = sens[String(ch)].to<JsonObject>();
+                o["type"]      = "absorption";
+                o["occupied"]  = s.occupied;
+                o["raw"]       = s.raw;
+                o["threshold"] = s.threshold;
+                if (s.rocrailId.length()) o["id"] = s.rocrailId;
             }
+
+            JsonObject tof = doc["tof"].to<JsonObject>();
+            tof["present"]      = _live->tof.present;
+            tof["enabled"]      = _live->tof.enabled;
+            tof["distance_mm"]  = _live->tof.distanceMm;
+            tof["threshold_mm"] = _live->tof.thresholdMm;
+            tof["occupied"]     = _live->tof.occupied;
+            tof["valid"]        = _live->tof.valid;
+            tof["status"]       = _live->tof.status;
+
             JsonObject sigs = doc["signals"].to<JsonObject>();
             for (auto& [id, asp] : _live->signalStates) {
                 sigs[id] = asp;

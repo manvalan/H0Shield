@@ -27,6 +27,12 @@ struct TurnoutConfig {
     uint32_t pulse    = 300;     // coil pulse duration in ms
 };
 
+// ── Rocrail ToF block detector (VL6180X distance) ────────────────────
+struct ToFBlockConfig {
+    char    rocrailId[16] = "";
+    uint8_t thresholdMm   = 0;    // 0 = use global tof_threshold_mm
+};
+
 struct BoardConfig {
     char hostname[32]     = "ShieldH0";
     char wifiSsid[33]     = "";          // saved network name (password in NVS)
@@ -37,18 +43,22 @@ struct BoardConfig {
     char mqttUser[32]     = "";
     char mqttPass[32]     = "";          // runtime only, loaded from SecureStore
     uint16_t sensorThreshold = 512;      // ADC threshold for occupancy
+    bool     tofEnabled      = true;
+    uint8_t  tofThresholdMm  = 35;       // dist < threshold → occupied
     ChannelRole pinMap[MUX_CHANNELS] = {};
 
-    // Rocrail-mapped objects (up to 8 per type per board)
     static constexpr uint8_t MAX_SIGNALS    = 8;
     static constexpr uint8_t MAX_TURNOUTS   = 8;
     static constexpr uint8_t MAX_SENSORS_RB = 8;
+    static constexpr uint8_t MAX_TOF_BLOCKS = 4;
     SignalConfig   signals[MAX_SIGNALS];
     TurnoutConfig  turnouts[MAX_TURNOUTS];
     SensorRbConfig sensorsRb[MAX_SENSORS_RB];
+    ToFBlockConfig tofBlocks[MAX_TOF_BLOCKS];
     uint8_t        numSignals    = 0;
     uint8_t        numTurnouts   = 0;
     uint8_t        numSensorsRb  = 0;
+    uint8_t        numTofBlocks  = 0;
 };
 
 class ConfigManager {
@@ -86,6 +96,8 @@ public:
         strlcpy(cfg.mqttBroker, doc["mqtt_broker"] | cfg.mqttBroker, sizeof(cfg.mqttBroker));
         cfg.mqttPort = doc["mqtt_port"] | cfg.mqttPort;
         cfg.sensorThreshold = doc["sensor_threshold"] | cfg.sensorThreshold;
+        cfg.tofEnabled      = doc["tof_enabled"]      | cfg.tofEnabled;
+        cfg.tofThresholdMm  = doc["tof_threshold_mm"] | cfg.tofThresholdMm;
         strlcpy(cfg.mqttUser,   doc["mqtt_user"]  | cfg.mqttUser,   sizeof(cfg.mqttUser));
         cfg.mqttPass[0] = '\0';   // never from JSON – loaded via SecureStore
 
@@ -126,9 +138,17 @@ public:
             sr.muxCh = rb["mux_ch"] | 0;
         }
 
-        Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u\n",
+        cfg.numTofBlocks = 0;
+        for (JsonObject tb : doc["tof_blocks"].as<JsonArray>()) {
+            if (cfg.numTofBlocks >= BoardConfig::MAX_TOF_BLOCKS) break;
+            ToFBlockConfig& t = cfg.tofBlocks[cfg.numTofBlocks++];
+            strlcpy(t.rocrailId, tb["rocrail_id"] | "", sizeof(t.rocrailId));
+            t.thresholdMm = tb["threshold_mm"] | 0;
+        }
+
+        Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u, tof_blocks: %u\n",
                       cfg.hostname, cfg.mqttBroker,
-                      cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb);
+                      cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb, cfg.numTofBlocks);
         return true;
     }
 
@@ -142,6 +162,8 @@ public:
         doc["mqtt_port"]   = cfg.mqttPort;
         doc["mqtt_user"]   = cfg.mqttUser;
         doc["sensor_threshold"] = cfg.sensorThreshold;
+        doc["tof_enabled"]      = cfg.tofEnabled;
+        doc["tof_threshold_mm"] = cfg.tofThresholdMm;
 
         JsonArray arr = doc["pin_map"].to<JsonArray>();
         for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
@@ -172,6 +194,13 @@ public:
             JsonObject o = rbArr.add<JsonObject>();
             o["rocrail_id"] = cfg.sensorsRb[i].rocrailId;
             o["mux_ch"]     = cfg.sensorsRb[i].muxCh;
+        }
+
+        JsonArray tbArr = doc["tof_blocks"].to<JsonArray>();
+        for (uint8_t i = 0; i < cfg.numTofBlocks; i++) {
+            JsonObject o = tbArr.add<JsonObject>();
+            o["rocrail_id"]   = cfg.tofBlocks[i].rocrailId;
+            o["threshold_mm"] = cfg.tofBlocks[i].thresholdMm;
         }
 
         File f = LittleFS.open(CONFIG_PATH, "w");
