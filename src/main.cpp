@@ -73,6 +73,7 @@ void buildRocrailObjects();
 void onMqttCommand(const String& topic, const String& payload);
 void publishSensorStates();
 void checkResetButton();
+void ensureMdns(ConfigManager& cfgMgr);
 SensorChannel* ensureSensorChannel(uint8_t ch);
 uint8_t countConfiguredMuxChannels();
 
@@ -98,15 +99,13 @@ void setup() {
         Serial.println("[WIFI] Reset button – cancello credenziali");
         SecureStore::clearWifi();
         cfgMgr.cfg.wifiSsid[0] = '\0';
+        cfgMgr.cfg.lastStaIp[0] = '\0';
         cfgMgr.save();
     }
     setupWiFi(cfgMgr);
 
-    // ── mDNS ──────────────────────────────────────────────────────────
-    if (MDNS.begin(cfgMgr.cfg.hostname)) {
-        MDNS.addService("http", "tcp", 80);
-        Serial.printf("[mDNS] http://%s.local/\n", cfgMgr.cfg.hostname);
-    }
+    // mDNS (best-effort — usare sempre http://<IP>/)
+    ensureMdns(cfgMgr);
 
     // ── OTA ───────────────────────────────────────────────────────────
     ota.begin(cfgMgr);
@@ -215,6 +214,9 @@ void setup() {
 // ─────────────────────────────────────────────────────────────────────
 void loop() {
     checkResetButton();
+    wifiJob.loop();
+    ensureMdns(cfgMgr);
+    if (wifiHasStaIp()) wifiSaveLastIp(cfgMgr);
     ota.loop();
     webConfig.loop();
     mqtt.loop();
@@ -514,6 +516,24 @@ void onMqttCommand(const String& topic, const String& payload) {
     }
 }
 
+// ── mDNS (opzionale) — l'IP LAN è l'accesso affidabile ───────────────
+static bool g_mdnsReady = false;
+
+void ensureMdns(ConfigManager& cfgMgr) {
+    if (!wifiHasStaIp()) return;
+    if (g_mdnsReady) return;
+
+    char host[32];
+    wifiNormalizeHostname(cfgMgr.cfg.hostname, host, sizeof(host));
+    WiFi.setHostname(host);
+    if (MDNS.begin(host)) {
+        MDNS.addService("http", "tcp", 80);
+        g_mdnsReady = true;
+        Serial.printf("[mDNS] http://%s.local/ (usa http://%s/)\n",
+                      host, WiFi.localIP().toString().c_str());
+    }
+}
+
 // ── Runtime WiFi reset (long-press during normal operation) ──────────
 void checkResetButton() {
     static unsigned long pressStart = 0;
@@ -529,7 +549,7 @@ void checkResetButton() {
     } else if (pressed && wasPressed) {
         if (millis() - pressStart >= WIFI_RESET_HOLD_MS) {
             Serial.println("[WIFI] Long press – resetting credentials");
-            resetWifiAndRestart();
+            resetWifiAndRestart(cfgMgr);
         }
     }
 }

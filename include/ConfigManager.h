@@ -102,7 +102,8 @@ struct ScenarioConfig {
 
 struct BoardConfig {
     char hostname[32]     = "ShieldH0";
-    char wifiSsid[33]     = "";          // saved network name (password in NVS)
+    char wifiSsid[33]     = "";          // saved network (LittleFS + NVS)
+    char lastStaIp[16]    = "";          // ultimo IP LAN (per accesso senza mDNS)
     char webUser[32]      = "admin";
     char webPassHash[65]  = "";          // SHA-256 hex; empty = no login required
     char mqttBroker[64]   = "";
@@ -174,6 +175,7 @@ public:
 
         strlcpy(cfg.hostname,   doc["hostname"]   | cfg.hostname,   sizeof(cfg.hostname));
         strlcpy(cfg.wifiSsid,   doc["wifi_ssid"]  | cfg.wifiSsid,   sizeof(cfg.wifiSsid));
+        strlcpy(cfg.lastStaIp,  doc["last_sta_ip"] | cfg.lastStaIp, sizeof(cfg.lastStaIp));
         strlcpy(cfg.webUser,    doc["web_user"]   | cfg.webUser,    sizeof(cfg.webUser));
         strlcpy(cfg.webPassHash,doc["web_pass_hash"] | cfg.webPassHash, sizeof(cfg.webPassHash));
         strlcpy(cfg.mqttBroker, doc["mqtt_broker"] | cfg.mqttBroker, sizeof(cfg.mqttBroker));
@@ -321,6 +323,7 @@ public:
         JsonDocument doc;
         doc["hostname"]    = cfg.hostname;
         doc["wifi_ssid"]   = cfg.wifiSsid;
+        if (cfg.lastStaIp[0]) doc["last_sta_ip"] = cfg.lastStaIp;
         doc["web_user"]    = cfg.webUser;
         doc["web_pass_hash"]= cfg.webPassHash;
         doc["mqtt_broker"] = cfg.mqttBroker;

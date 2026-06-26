@@ -38,6 +38,7 @@ public:
         _server.on("/api/wifi/scan",   HTTP_GET,  [this]() { _handleWifiScan(); });
         _server.on("/api/wifi/connect", HTTP_POST, [this]() { _handleWifiConnect(); });
         _server.on("/api/wifi/test",   HTTP_POST, [this]() { _handleWifiTest(); });
+        _server.on("/api/wifi/dismiss", HTTP_POST, [this]() { _handleWifiDismiss(); });
         _server.on("/api/wifi/reset",  HTTP_POST, [this]() { _handleWifiReset(); });
         _server.on("/api/auth/login",  HTTP_POST, [this]() { _handleAuthLogin(); });
         _server.on("/api/auth/check",  HTTP_GET,  [this]() { _handleAuthCheck(); });
@@ -88,6 +89,7 @@ private:
         JsonDocument doc;
         doc["hostname"]    = _cfg->cfg.hostname;
         doc["wifi_ssid"]   = _cfg->cfg.wifiSsid;
+        if (_cfg->cfg.lastStaIp[0]) doc["last_sta_ip"] = _cfg->cfg.lastStaIp;
         doc["web_user"]    = _cfg->cfg.webUser;
         doc["has_web_pass"]= _authRequired();
         doc["sensor_threshold"] = _cfg->cfg.sensorThreshold;
@@ -399,7 +401,8 @@ private:
 
         _cfg->save();
         _server.send(200, "application/json", "{\"status\":\"ok\",\"restarting\":true}");
-        delay(500);
+        _server.client().flush();
+        delay(100);
         ESP.restart();
     }
 
@@ -475,7 +478,14 @@ private:
     void _handleStatus() {
         JsonDocument doc;
         doc["uptime_s"]      = millis() / 1000;
-        doc["ip"]            = WiFi.localIP().toString();
+        doc["ip"]            = wifiHasStaIp() ? WiFi.localIP().toString()
+                                               : String(_cfg->cfg.lastStaIp);
+        doc["sta_ip"]        = doc["ip"];
+        doc["last_sta_ip"]   = _cfg->cfg.lastStaIp;
+        doc["ap_ip"]         = WiFi.softAPIP().toString();
+        if (doc["ip"].as<String>().length())
+            doc["web_url"]   = String("http://") + doc["ip"].as<const char*>() + "/";
+        doc["ap_url"]        = String("http://") + WiFi.softAPIP().toString() + "/";
         doc["rssi"]          = _live ? _live->rssi : WiFi.RSSI();
         doc["mqtt"]          = _live ? _live->mqttConnected : false;
         doc["hostname"]      = _cfg->cfg.hostname;
@@ -608,49 +618,89 @@ private:
         _server.send(200, "application/json", out);
     }
 
+    void _fillWifiAccess(JsonObject doc) const {
+        const bool sta = wifiHasStaIp();
+        String staIp = sta ? WiFi.localIP().toString() : String(_cfg->cfg.lastStaIp);
+        doc["connected"]   = sta;
+        doc["ssid"]        = sta ? WiFi.SSID() : _cfg->cfg.wifiSsid;
+        doc["sta_ip"]      = staIp;
+        doc["last_sta_ip"] = _cfg->cfg.lastStaIp;
+        doc["saved_ssid"]  = _cfg->cfg.wifiSsid;
+        if (staIp.length())
+            doc["web_url"] = String("http://") + staIp + "/";
+        doc["ap_ip"]  = WiFi.softAPIP().toString();
+        doc["ap_url"] = String("http://") + WiFi.softAPIP().toString() + "/";
+        char host[32];
+        wifiNormalizeHostname(_cfg->cfg.hostname, host, sizeof(host));
+        doc["mdns_host"] = host;
+        doc["mdns_url"]  = String("http://") + host + ".local/";
+        doc["rssi"]      = WiFi.RSSI();
+    }
+
     void _handleWifiStatus() {
         JsonDocument doc;
-        doc["connected"]  = WiFi.status() == WL_CONNECTED;
-        doc["ssid"]       = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : _cfg->cfg.wifiSsid;
-        doc["ip"]           = WiFi.localIP().toString();
-        doc["ap_ip"]        = WiFi.softAPIP().toString();
-        doc["rssi"]         = WiFi.RSSI();
-        doc["saved_ssid"]   = _cfg->cfg.wifiSsid;
+        _fillWifiAccess(doc.as<JsonObject>());
+        doc["uptime_s"] = millis() / 1000;
+        wifiJob.fillJobStatus(doc.as<JsonObject>());
         String out;
         serializeJson(doc, out);
         _server.send(200, "application/json", out);
     }
 
     void _handleWifiScan() {
-        int n = WiFi.scanNetworks(false, true);
         JsonDocument doc;
-        JsonArray arr = doc["networks"].to<JsonArray>();
-        for (int i = 0; i < n; i++) {
-            JsonObject o = arr.add<JsonObject>();
-            o["ssid"]  = WiFi.SSID(i);
-            o["rssi"]  = WiFi.RSSI(i);
-            o["secure"]= WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
-            o["ch"]    = WiFi.channel(i);
-        }
-        doc["count"] = n;
-        String out;
-        serializeJson(doc, out);
-        _server.send(200, "application/json", out);
-    }
 
-    void _sendWifiAttempt(const WiFiAttemptResult& r, bool saved = false) {
-        JsonDocument doc;
-        doc["ok"]      = r.ok;
-        doc["status"]  = wifiStatusLabel(r.status);
-        doc["message"] = wifiStatusMessageIt(r.status);
-        if (r.ok) {
-            doc["ip"]    = r.ip;
-            doc["rssi"]  = r.rssi;
-            doc["saved"] = saved;
+        if (wifiJob.busy() || wifiJob.restartPending()) {
+            doc["scanning"] = true;
+            doc["busy"]     = true;
+            doc["message"]  = wifiJob.restartPending()
+                ? "Riavvio scheda in corso…"
+                : "Connessione WiFi in corso — riprova tra poco";
+            String out;
+            serializeJson(doc, out);
+            _server.send(409, "application/json", out);
+            return;
         }
+
+        const bool wantFresh = _server.hasArg("fresh");
+
+        int n = WiFi.scanComplete();
+        if ((n == -1 || wifiJob.phase() == WiFiJobManager::Phase::SCANNING) &&
+            !wifiJob.restartPending()) {
+            doc["scanning"]   = true;
+            doc["message"]    = "Scansione in corso…";
+            doc["elapsed_ms"] = wifiJob.phase() == WiFiJobManager::Phase::SCANNING
+                ? static_cast<uint32_t>(millis()) : 0;
+            String out;
+            serializeJson(doc, out);
+            _server.send(200, "application/json", out);
+            return;
+        }
+
+        if (n >= 0 && !wantFresh) {
+            wifiJob.fillScanResults(doc);
+            String out;
+            serializeJson(doc, out);
+            _server.send(200, "application/json", out);
+            return;
+        }
+
+        if (!wifiJob.startScan()) {
+            doc["scanning"] = true;
+            doc["busy"]     = true;
+            doc["message"]  = "Operazione WiFi già in corso";
+            String out;
+            serializeJson(doc, out);
+            _server.send(409, "application/json", out);
+            return;
+        }
+
+        doc["scanning"] = true;
+        doc["started"]  = true;
+        doc["message"]  = "Scansione avviata…";
         String out;
         serializeJson(doc, out);
-        _server.send(r.ok ? 200 : 502, "application/json", out);
+        _server.send(202, "application/json", out);
     }
 
     void _handleWifiConnect() {
@@ -669,20 +719,18 @@ private:
             _server.send(400, "application/json", "{\"error\":\"ssid_required\"}");
             return;
         }
-        const bool ok = connectToNetwork(*_cfg, ssid, pass);
-        if (ok) {
-            WiFiAttemptResult r;
-            r.ok     = true;
-            r.status = WL_CONNECTED;
-            r.ip     = WiFi.localIP().toString();
-            r.rssi   = WiFi.RSSI();
-            _sendWifiAttempt(r, true);
-        } else {
-            WiFiAttemptResult r;
-            r.ok     = false;
-            r.status = WiFi.status();
-            _sendWifiAttempt(r, false);
+        if (wifiJob.busy()) {
+            _server.send(409, "application/json",
+                         "{\"ok\":false,\"busy\":true,\"message\":\"Operazione WiFi già in corso\"}");
+            return;
         }
+        if (!wifiJob.startConnect(ssid, pass, true)) {
+            _server.send(500, "application/json",
+                         "{\"ok\":false,\"message\":\"Impossibile avviare la connessione\"}");
+            return;
+        }
+        _server.send(202, "application/json",
+                     "{\"ok\":true,\"pending\":true,\"message\":\"Connessione avviata — attendi il risultato\"}");
     }
 
     void _handleWifiTest() {
@@ -702,8 +750,23 @@ private:
                          "{\"ok\":false,\"message\":\"Seleziona una rete\"}");
             return;
         }
-        WiFiAttemptResult r = testWiFiNetwork(*_cfg, ssid, pass);
-        _sendWifiAttempt(r, false);
+        if (wifiJob.busy()) {
+            _server.send(409, "application/json",
+                         "{\"ok\":false,\"busy\":true,\"message\":\"Operazione WiFi già in corso\"}");
+            return;
+        }
+        if (!wifiJob.startConnect(ssid, pass, false)) {
+            _server.send(500, "application/json",
+                         "{\"ok\":false,\"message\":\"Impossibile avviare il test\"}");
+            return;
+        }
+        _server.send(202, "application/json",
+                     "{\"ok\":true,\"pending\":true,\"message\":\"Test connessione avviato\"}");
+    }
+
+    void _handleWifiDismiss() {
+        wifiJob.dismiss();
+        _server.send(200, "application/json", "{\"ok\":true}");
     }
 
     void _handleAuthCheck() {
@@ -742,6 +805,6 @@ private:
         _server.send(200, "application/json",
                      "{\"ok\":true,\"message\":\"Riavvio in modalità setup WiFi\"}");
         delay(300);
-        resetWifiAndRestart();
+        resetWifiAndRestart(*_cfg);
     }
 };
