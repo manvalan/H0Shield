@@ -196,11 +196,10 @@ void setup() {
     ota.begin(cfgMgr);
 
     Serial.println("==== Boot complete ====");
-    Serial.printf("==== AP sempre attivo: http://%s/ ====\n",
-                  WiFi.softAPIP().toString().c_str());
     if (wifiHasStaIp())
-        Serial.printf("==== Rete di casa: http://%s/ ====\n",
-                      WiFi.localIP().toString().c_str());
+        Serial.printf("==== Rete di casa: http://%s/ ====\n", WiFi.localIP().toString().c_str());
+    else if (wifiApRunning())
+        Serial.println("==== Setup AP: http://192.168.4.1/ ====");
     Serial.printf("[SUM] MUX:%u ch | I2C:%s%s | MQTT:%s | Web:OK\n",
                   muxUsed,
                   tofPresent ? "VL6180X" : "",

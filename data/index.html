@@ -334,10 +334,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
     <button id="btn-wifi-connect" class="btn btn-p" onclick="connectWifi()">Connetti</button>
     <div id="wifi-result"></div>
-    <p style="font-size:.72rem;color:var(--muted);margin-top:12px">
-      <strong>Accesso garantito:</strong> WiFi <code>ShieldH0-${cfg.hostname||'ShieldH0'}</code> →
+    <p id="wifi-setup-hint" style="font-size:.72rem;color:var(--muted);margin-top:12px;display:none">
+      <strong>Primo accesso:</strong> connettiti al WiFi <code id="wifi-ap-name">ShieldH0-…</code> →
       <a href="http://192.168.4.1/" style="color:var(--accent)">http://192.168.4.1/</a>
-      (sempre attivo, anche con rete di casa configurata).
+      e configura la rete di casa qui sotto.
     </p>
   </div>
   <div class="card">
@@ -727,17 +727,25 @@ async function loadWifiStatus(){
         hero.className='wifi-hero online';
         hero.innerHTML=`<div class="wifi-hero-title">✓ ${w.ssid||w.saved_ssid||'WiFi'}</div>
           <div class="wifi-ip-box"><div class="url"><a href="${webUrl}" style="color:inherit">${webUrl}</a></div>
-          <div class="hint">Usa questo indirizzo (mDNS *.local spesso non funziona).<br>
-          Fallback AP: <a href="${apUrl}" style="color:var(--accent)">${apUrl}</a> — WiFi ShieldH0-${cfg.hostname||'ShieldH0'}</div></div>
-          <div class="wifi-hero-sub" style="margin-top:8px">Segnale ${w.rssi} dBm · salvato in memoria</div>`;
-      }else{
+          <div class="hint">Apri questo indirizzo dal WiFi di casa (non usare .local).</div></div>
+          <div class="wifi-hero-sub" style="margin-top:8px">Segnale ${w.rssi} dBm · configurazione salvata</div>`;
+      }else if(w.setup_mode || w.ap_active){
         hero.className='wifi-hero setup';
         hero.innerHTML=`<div class="wifi-hero-title">Modalità configurazione</div>
           <div class="wifi-hero-sub">Connettiti all'AP <strong>ShieldH0-${cfg.hostname||'ShieldH0'}</strong> poi configura qui sotto.<br>
-          AP: <a href="${apUrl}" style="color:var(--accent)">${apUrl||'192.168.4.1'}</a>
-          ${w.last_sta_ip?`<br>Ultimo IP noto: <strong>${w.last_sta_ip}</strong>`:''}</div>`;
+          AP: <a href="${apUrl||'http://192.168.4.1/'}" style="color:var(--accent)">${apUrl||'http://192.168.4.1/'}</a>
+          ${w.last_sta_ip?`<br>Ultimo IP noto: <strong>${w.last_sta_ip}</strong> (riprova dal WiFi di casa)` : ''}</div>`;
+      }else{
+        hero.className='wifi-hero setup';
+        hero.innerHTML=`<div class="wifi-hero-title">Non connesso</div>
+          <div class="wifi-hero-sub">${w.saved_ssid?`Rete salvata: ${w.saved_ssid}. ` : ''}Riconnessione in corso…
+          ${w.last_sta_ip?`<br>Ultimo IP: <strong>${w.last_sta_ip}</strong>` : ''}</div>`;
       }
     }
+    const hint=document.getElementById('wifi-setup-hint');
+    const apName=document.getElementById('wifi-ap-name');
+    if(hint) hint.style.display=(w.setup_mode||w.ap_active)?'block':'none';
+    if(apName) apName.textContent='ShieldH0-'+(cfg.hostname||'ShieldH0');
     return w;
   }catch(e){return null;}
 }
@@ -820,12 +828,15 @@ function updateWifiJobUi(w){
     const pct=Math.min(100,Math.round((w.job_elapsed_ms||0)/(w.job_timeout_ms||18000)*100));
     setWifiResult('wait',w.job_message||'Connessione in corso…',true,pct);
   }else if(w.job_phase==='success'){
-    if(w.job_saved||w.job_restart) return 'restart';
     const u=w.job_web_url||(w.job_ip?'http://'+w.job_ip+'/':'');
-    setWifiResult('ok','Connesso',false,u?`Apri ${u}`:`IP ${w.job_ip||w.ip}`);
+    const msg=u
+      ? `Connesso. Passa al WiFi di casa e apri ${u} (l'AP ShieldH0 si spegne).`
+      : `IP ${w.job_ip||'—'} — passa al WiFi di casa per continuare.`;
+    setWifiResult('ok','Rete salvata',false,msg);
     fetch('/api/wifi/dismiss',{method:'POST'}).catch(()=>{});
     setWifiUiBusy(false);
     stopWifiPoll();
+    loadWifiStatus();
     pollStatus();
   }else if(w.job_phase==='failed'){
     setWifiResult('err','Connessione fallita',false,w.job_message||'Verifica password e riprova');
@@ -842,18 +853,7 @@ async function pollWifiJob(timeoutMs=28000){
     await sleep(500);
     const w=await loadWifiStatus();
     if(!w) continue;
-    if(w.job_phase==='success' && (w.job_saved||w.job_restart)){
-      const u=w.job_web_url||(w.job_ip?'http://'+w.job_ip+'/':'');
-      setWifiResult('ok','Rete salvata',false,u?`Apri ${u} dal WiFi di casa (memorizzato)`:'Riavvio…');
-      await waitForDevice(45000);
-      return true;
-    }
-    const action=updateWifiJobUi(w);
-    if(action==='restart'){
-      setWifiResult('wait','Rete salvata — riavvio scheda…',true,95);
-      await waitForDevice(45000);
-      return true;
-    }
+    updateWifiJobUi(w);
     if(w.job_phase==='success') return true;
     if(w.job_phase==='failed') return false;
   }
@@ -939,7 +939,7 @@ async function connectWifi(){
   selSsid=ssid;
   setWifiUiBusy(true);
   setWifiResult('wait','Connessione alla rete di casa…',true,8,
-    'Se perdi la pagina: attendi 30 s, connettiti al WiFi di casa e usa l’IP in Dashboard (non .local). AP fallback: 192.168.4.1');
+    'Durante la connessione resta sull\'AP ShieldH0. Al termine passa al WiFi di casa e apri l\'IP mostrato.');
   try{
     const r=await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ssid,password:document.getElementById('wifi-pass').value})});
@@ -963,7 +963,8 @@ async function resetWifi(){
   try{
     await fetch('/api/wifi/reset',{method:'POST',headers:authH()});
   }catch(e){}
-  await waitForDevice(30000);
+  showRebootOverlay('Reset WiFi…','La scheda si riavvia. Connettiti all\'AP ShieldH0 → 192.168.4.1');
+  await waitForDevice(35000);
 }
 
 function addRb(d={}){const el=document.createElement('div');el.className='dyn rb';

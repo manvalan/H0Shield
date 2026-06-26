@@ -491,8 +491,9 @@ private:
         doc["hostname"]      = _cfg->cfg.hostname;
         doc["free_heap"]     = ESP.getFreeHeap();
         doc["wifi_ssid"]     = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : _cfg->cfg.wifiSsid;
-        doc["wifi_connected"]= WiFi.status() == WL_CONNECTED;
-        doc["ap_mode"]       = WiFi.getMode() & WIFI_AP;
+        doc["wifi_connected"]= wifiHasStaIp();
+        doc["setup_mode"]    = wifiInSetupMode(*_cfg);
+        doc["ap_mode"]       = wifiApRunning();
 
         if (_live) {
             JsonObject sens = doc["sensors"].to<JsonObject>();
@@ -619,22 +620,11 @@ private:
     }
 
     void _fillWifiAccess(JsonObject doc) const {
-        const bool sta = wifiHasStaIp();
-        String staIp = sta ? WiFi.localIP().toString() : String(_cfg->cfg.lastStaIp);
-        doc["connected"]   = sta;
-        doc["ssid"]        = sta ? WiFi.SSID() : _cfg->cfg.wifiSsid;
-        doc["sta_ip"]      = staIp;
-        doc["last_sta_ip"] = _cfg->cfg.lastStaIp;
-        doc["saved_ssid"]  = _cfg->cfg.wifiSsid;
-        if (staIp.length())
-            doc["web_url"] = String("http://") + staIp + "/";
-        doc["ap_ip"]  = WiFi.softAPIP().toString();
-        doc["ap_url"] = String("http://") + WiFi.softAPIP().toString() + "/";
+        wifiFillAccessStatus(*_cfg, doc);
         char host[32];
         wifiNormalizeHostname(_cfg->cfg.hostname, host, sizeof(host));
         doc["mdns_host"] = host;
         doc["mdns_url"]  = String("http://") + host + ".local/";
-        doc["rssi"]      = WiFi.RSSI();
     }
 
     void _handleWifiStatus() {
@@ -650,12 +640,10 @@ private:
     void _handleWifiScan() {
         JsonDocument doc;
 
-        if (wifiJob.busy() || wifiJob.restartPending()) {
+        if (wifiJob.busy()) {
             doc["scanning"] = true;
             doc["busy"]     = true;
-            doc["message"]  = wifiJob.restartPending()
-                ? "Riavvio scheda in corso…"
-                : "Connessione WiFi in corso — riprova tra poco";
+            doc["message"]  = "Connessione WiFi in corso — riprova tra poco";
             String out;
             serializeJson(doc, out);
             _server.send(409, "application/json", out);
@@ -665,8 +653,7 @@ private:
         const bool wantFresh = _server.hasArg("fresh");
 
         int n = WiFi.scanComplete();
-        if ((n == -1 || wifiJob.phase() == WiFiJobManager::Phase::SCANNING) &&
-            !wifiJob.restartPending()) {
+        if ((n == -1 || wifiJob.phase() == WiFiJobManager::Phase::SCANNING)) {
             doc["scanning"]   = true;
             doc["message"]    = "Scansione in corso…";
             doc["elapsed_ms"] = wifiJob.phase() == WiFiJobManager::Phase::SCANNING
