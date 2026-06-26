@@ -105,4 +105,40 @@ public:
         p.end();
         WiFi.disconnect(true, true);
     }
+
+    /** Config completa in NVS — sopravvive a uploadfs (LittleFS viene riscritto). */
+    static bool saveConfigJson(const String& json) {
+        if (json.isEmpty()) return false;
+        Preferences p;
+        p.begin("sh0cfg", false);
+        const bool ok = p.putBytes("data", json.c_str(), json.length()) == json.length();
+        if (ok) p.putUInt("len", json.length());
+        p.end();
+        return ok;
+    }
+
+    static String loadConfigJson() {
+        Preferences p;
+        p.begin("sh0cfg", true);
+        const size_t len = p.getUInt("len", 0);
+        if (len == 0 || len > 8192) {
+            p.end();
+            return "";
+        }
+        char* buf = static_cast<char*>(malloc(len + 1));
+        if (!buf) {
+            p.end();
+            return "";
+        }
+        const size_t got = p.getBytes("data", buf, len);
+        p.end();
+        if (got != len) {
+            free(buf);
+            return "";
+        }
+        buf[len] = '\0';
+        String out(buf);
+        free(buf);
+        return out;
+    }
 };

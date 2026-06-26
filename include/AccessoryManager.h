@@ -37,15 +37,23 @@ public:
             rt.blinkPhase = false;
             rt.pulsing = false;
 
-            if (!_ensureRelay(ac.muxCh)) {
+            const bool hasPrimary = ac.muxCh < MUX_CHANNELS && ac.muxCh != MUX_CH_UNUSED;
+            const bool hasBar = ac.profile == AccessoryProfile::LEVEL_XING &&
+                                ac.muxChBar < MUX_CHANNELS && ac.muxChBar != MUX_CH_UNUSED;
+
+            if (!hasPrimary && !hasBar) {
+                Serial.printf("[ACC] '%s' salvato (nessun canale MUX)\n", ac.id);
+                _count++;
+                continue;
+            }
+
+            if (hasPrimary && !_ensureRelay(ac.muxCh)) {
                 Serial.printf("[ACC] Skip '%s' – MUX ch%u unavailable\n", ac.id, ac.muxCh);
                 continue;
             }
-            if (ac.profile == AccessoryProfile::LEVEL_XING && ac.muxChBar < MUX_CHANNELS) {
-                if (!_ensureRelay(ac.muxChBar)) {
-                    Serial.printf("[ACC] Skip PL '%s' – bar ch%u unavailable\n", ac.id, ac.muxChBar);
-                    continue;
-                }
+            if (hasBar && !_ensureRelay(ac.muxChBar)) {
+                Serial.printf("[ACC] Skip PL '%s' – bar ch%u unavailable\n", ac.id, ac.muxChBar);
+                continue;
             }
 
             Serial.printf("[ACC] '%s' profile=%s ch=%u%s pulse=%ums\n",

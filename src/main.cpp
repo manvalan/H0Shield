@@ -62,8 +62,11 @@ std::vector<std::unique_ptr<TurnoutChannel>> turnouts;
 // Live status shared with the web server
 LiveStatus liveStatus;
 
+static unsigned long g_bootMs = 0;
+
 // Scan timing
 static unsigned long lastScanMs   = 0;
+static unsigned long lastI2cDiscoverMs = 0;
 // Track previous sensor states to publish only on change
 static bool prevSensorState[MUX_CHANNELS] = {};
 
@@ -81,6 +84,7 @@ uint8_t countConfiguredMuxChannels();
 void setup() {
     Serial.begin(115200);
     delay(200);
+    g_bootMs = millis();
     Serial.println("\n\n==== ShieldH0 booting ====");
 
     // ── Reset button ──────────────────────────────────────────────────
@@ -110,6 +114,8 @@ void setup() {
         }
         if (type == "display_info") {
             if (!displayMgr.injectInfoFromJson(doc, err)) return false;
+            result["display_driver"] = DisplayManager::driverEnabled();
+            result["display_drawn"]  = displayMgr.flushDirty();
             return true;
         }
         if (type == "sensor") {
@@ -257,6 +263,11 @@ void loop() {
     mqtt.loop();
     if (tofPresent) tofMgr.loop();
     displayMgr.loop();
+
+    if (millis() - lastI2cDiscoverMs >= I2C_DISCOVER_MS) {
+        lastI2cDiscoverMs = millis();
+        i2cBus.discoverAll();
+    }
 
     if (millis() - lastScanMs >= SENSOR_POLL_MS) {
         lastScanMs = millis();
@@ -581,8 +592,17 @@ void ensureMdns(ConfigManager& cfgMgr) {
 
 // ── Runtime WiFi reset (long-press during normal operation) ──────────
 void checkResetButton() {
+    static bool          armed      = false;
     static unsigned long pressStart = 0;
     static bool          wasPressed = false;
+
+    // GPIO0 è spesso LOW con USB collegato: non armare il reset finché
+    // non sono passati 15 s e il pulsante è rilasciato (HIGH).
+    if (!armed) {
+        if (millis() - g_bootMs < 15000) return;
+        if (digitalRead(WIFI_RESET_PIN) == LOW) return;
+        armed = true;
+    }
 
     bool pressed = (digitalRead(WIFI_RESET_PIN) == LOW);
 

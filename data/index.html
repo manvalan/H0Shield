@@ -649,8 +649,14 @@ function deriveMuxBindings(c){
     if(t.chD<16) b[t.chD]={ch:t.chD,role:'turnout_d',element:t.id||''};
   });
   (c.accessories||[]).forEach(a=>{
-    if(a.mux_ch!=null&&a.mux_ch<16) b[a.mux_ch]={ch:a.mux_ch,role:'accessory',element:a.id||''};
-    if(a.mux_ch_bar!=null&&a.mux_ch_bar<16) b[a.mux_ch_bar]={ch:a.mux_ch_bar,role:'accessory_bar',element:a.id||''};
+    if(a.profile==='level_xing'){
+      const chL=a.mux_ch_lights!=null&&a.mux_ch_lights!==255?a.mux_ch_lights:a.mux_ch;
+      if(chL!=null&&chL<16&&chL!==255) b[chL]={ch:chL,role:'accessory',element:a.id||''};
+      if(a.mux_ch_bar!=null&&a.mux_ch_bar<16&&a.mux_ch_bar!==255)
+        b[a.mux_ch_bar]={ch:a.mux_ch_bar,role:'accessory_bar',element:a.id||''};
+    }else if(a.mux_ch!=null&&a.mux_ch<16&&a.mux_ch!==255){
+      b[a.mux_ch]={ch:a.mux_ch,role:'accessory',element:a.id||''};
+    }
   });
   for(let i=0;i<16;i++){
     if(b[i].role!=='unused') continue;
@@ -664,7 +670,8 @@ function deriveMuxBindings(c){
   return b;
 }
 
-function elementOptions(type){
+function muxChVal(v){return(v===''||v==null||v===255)?255:+v;}
+function muxChField(v){return(v==null||v===255)?'':v;}
   if(type==='sensor') return getRb().map(s=>s.rocrail_id).filter(Boolean);
   if(type==='signal') return getSig().map(s=>s.id).filter(Boolean);
   if(type==='turnout') return getSw().map(s=>s.id).filter(Boolean);
@@ -763,11 +770,15 @@ function applyMuxBindingsToConfig(body){
         if(el){let t=turnouts.find(x=>x.id===el); if(t) t.chD=ch;}
         break;}
       case 'accessory':{
-        pinMap[ch]=2;
-        if(el){let a=accessories.find(x=>x.id===el); if(a) a.mux_ch=ch;}
+        if(el){
+          let a=accessories.find(x=>x.id===el);
+          if(a){
+            if(a.profile==='level_xing') a.mux_ch_lights=ch;
+            else a.mux_ch=ch;
+          }
+        }
         break;}
       case 'accessory_bar':{
-        pinMap[ch]=2;
         if(el){let a=accessories.find(x=>x.id===el); if(a) a.mux_ch_bar=ch;}
         break;}
       case 'marmotta': pinMap[ch]=4; break;
@@ -779,7 +790,16 @@ function applyMuxBindingsToConfig(body){
   body.signals=signals.filter(x=>x.id);
   body.turnouts=turnouts.filter(x=>x.id);
   body.sensors_rb=sensors.filter(x=>x.rocrail_id);
-  body.accessories=accessories.filter(x=>x.id);
+  body.accessories=accessories.filter(x=>x.id).map(a=>{
+    const o={id:a.id,profile:a.profile,pulse_ms:a.pulse_ms};
+    if(a.profile==='level_xing'){
+      if(a.mux_ch_lights!=null&&a.mux_ch_lights!==255) o.mux_ch_lights=a.mux_ch_lights;
+      if(a.mux_ch_bar!=null&&a.mux_ch_bar!==255) o.mux_ch_bar=a.mux_ch_bar;
+    }else if(a.mux_ch!=null&&a.mux_ch!==255){
+      o.mux_ch=a.mux_ch;
+    }
+    return o;
+  });
 }
 
 function buildI2cSlots(slots){
@@ -1329,15 +1349,15 @@ function addAcc(d={}){
       <div class="field"><label>Profilo</label><select class="ac-profile">${opts}</select></div>
     </div>
     <div class="ac-simple dyn" style="grid-template-columns:1fr 1fr 80px 32px">
-      <input class="ac-ch" type="number" min="0" max="15" value="${d.mux_ch||0}" title="MUX ch">
+      <input class="ac-ch" type="number" min="0" max="15" value="${muxChField(d.mux_ch)}" placeholder="ch" title="MUX ch">
       <input class="ac-pulse" type="number" min="50" max="5000" value="${d.pulse_ms||300}" title="ms">
       <span style="font-size:.7rem;color:var(--muted);align-self:center">impulso ms</span>
       <span></span>
     </div>
     <div class="ac-pl" style="display:none">
       <div class="row2">
-        <div class="field"><label>Ch luci</label><input class="ac-ch-l" type="number" min="0" max="15" value="${d.mux_ch_lights||d.mux_ch||0}"></div>
-        <div class="field"><label>Ch sbarra</label><input class="ac-ch-b" type="number" min="0" max="15" value="${d.mux_ch_bar||0}"></div>
+        <div class="field"><label>Ch luci</label><input class="ac-ch-l" type="number" min="0" max="15" value="${muxChField(d.mux_ch_lights!=null?d.mux_ch_lights:d.mux_ch)}"></div>
+        <div class="field"><label>Ch sbarra</label><input class="ac-ch-b" type="number" min="0" max="15" value="${muxChField(d.mux_ch_bar)}"></div>
       </div>
       <div class="field"><label>Periodo lampeggio (ms)</label><input class="ac-pulse-pl" type="number" min="100" max="2000" value="${d.pulse_ms||500}"></div>
     </div>
@@ -1354,10 +1374,10 @@ function getAcc(){
     const profile=el.querySelector('.ac-profile').value;
     const base={id:el.querySelector('.ac-id').value.trim(),profile};
     if(profile==='level_xing') return{...base,
-      mux_ch_lights:+el.querySelector('.ac-ch-l').value||0,
-      mux_ch_bar:+el.querySelector('.ac-ch-b').value||0,
+      mux_ch_lights:muxChVal(el.querySelector('.ac-ch-l').value),
+      mux_ch_bar:muxChVal(el.querySelector('.ac-ch-b').value),
       pulse_ms:+el.querySelector('.ac-pulse-pl').value||500};
-    return{...base,mux_ch:+el.querySelector('.ac-ch').value||0,pulse_ms:+el.querySelector('.ac-pulse').value||300};
+    return{...base,mux_ch:muxChVal(el.querySelector('.ac-ch').value),pulse_ms:+el.querySelector('.ac-pulse').value||300};
   }).filter(x=>x.id);
 }
 
@@ -1381,6 +1401,7 @@ async function saveAll(){
     mqtt_user:document.getElementById('mqtt-user').value.trim(),
     mqtt_pass:document.getElementById('mqtt-pass').value,
     tof_blocks:getTofRb(), displays:getDisplays(),
+    accessories:getAcc(),
     scenarios:getScn()
   };
   applyMuxBindingsToConfig(body);
@@ -1392,7 +1413,20 @@ async function saveAll(){
   }
   else if(r.status===401){toast('Accedi prima');document.getElementById('login').classList.add('show');}
   else if(r.status===409){const e=await r.json();toast('Conflitto: '+e.detail);}
+  else if(r.status===500){const e=await r.json().catch(()=>({}));toast('Salvataggio fallito'+(e.detail?': '+e.detail:''));}
   else toast('Errore salvataggio');
+}
+
+function updateI2cLive(board){
+  if(!board||!board.i2c_slots) return;
+  board.i2c_slots.forEach(sl=>{
+    const row=document.querySelector('#i2c-slots .i2c-slot[data-slot="'+sl.slot+'"]');
+    if(!row) return;
+    const det=row.querySelector('.i2-live');
+    if(!det) return;
+    det.textContent=sl.present?(sl.detected+(sl.addr?' @ '+sl.addr:'')):'non rilevato';
+    det.className='i2c-detect i2-live'+(sl.present?' ok':'');
+  });
 }
 
 async function pollStatus(){
@@ -1410,6 +1444,7 @@ async function pollStatus(){
     document.getElementById('d-heap').textContent=s.free_heap?Math.round(s.free_heap/1024)+' KB':'—';
     boardStatus=s;
     updateMuxLive();
+    updateI2cLive(s.board);
     updateDashSummary(s.sensors,s.tof,s.signals,s.turnouts,s.accessories,s.scenarios);
     renderSensors('d-sens',s.sensors,s.tof);
     renderSignals('d-sig',s.signals);
@@ -1573,6 +1608,11 @@ async function testApi(body){
   if(r.ok){
     let msg='Test OK';
     if(j.raw!=null) msg=`ADC ${j.raw} · soglia ${j.threshold} · ${j.occupied?'occupato':'libero'}`;
+    else if(body.type==='display_info'){
+      if(j.display_driver===false) msg='Dati OK ma OLED disabilitato — flash env wemos_d1_mini32_usb_display';
+      else if(!j.display_drawn) msg='Dati OK ma nessun OLED rilevato (I2C slot/indirizzo?)';
+      else msg=`OLED aggiornato (${j.display_drawn} display)`;
+    }
     toast(msg);
     pollStatus();
     return true;

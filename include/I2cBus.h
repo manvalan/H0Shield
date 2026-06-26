@@ -37,48 +37,77 @@ public:
     I2cSlotDiscovery slots[I2C_SLOTS] = {};
 
     void begin(uint8_t tcaAddr = TCA9548A_ADDR_DEFAULT) {
-        muxAddr = tcaAddr;
+        (void)tcaAddr;
+        muxAddr = TCA9548A_ADDR_DEFAULT;
         hasMux  = false;
 
         Wire.begin(I2C_SDA, I2C_SCL);
+        Wire.setClock(100000);
         Wire.setTimeout(50);
 
-        for (uint8_t a = 0x70; a <= 0x77; a++) {
-            Wire.beginTransmission(a);
-            if (Wire.endTransmission() == 0) {
-                muxAddr = a;
-                hasMux  = true;
-                Serial.printf("[I2C] TCA9548A @ 0x%02X (%u slots)\n", a, I2C_SLOTS);
-                break;
-            }
-        }
+        _detectMux();
         if (!hasMux) {
             Serial.println("[I2C] No TCA9548A – slot 0 = main bus");
         }
         discoverAll();
     }
 
+    void _detectMux() {
+        for (uint8_t a = 0x70; a <= 0x77; a++) {
+            Wire.beginTransmission(a);
+            if (Wire.endTransmission() == 0) {
+                muxAddr = a;
+                hasMux  = true;
+                Serial.printf("[I2C] TCA9548A @ 0x%02X (%u slots)\n", a, I2C_SLOTS);
+                return;
+            }
+        }
+    }
+
+    void deselectMux() {
+        if (!hasMux) return;
+        Wire.beginTransmission(muxAddr);
+        Wire.write(static_cast<uint8_t>(0));
+        Wire.endTransmission();
+        delayMicroseconds(300);
+    }
+
     bool selectSlot(uint8_t slot) {
         if (slot >= I2C_SLOTS) return false;
         if (!hasMux) return slot == 0;
+        deselectMux();
         Wire.beginTransmission(muxAddr);
         Wire.write(static_cast<uint8_t>(1 << slot));
-        return Wire.endTransmission() == 0;
+        if (Wire.endTransmission() != 0) return false;
+        delayMicroseconds(500);
+        return true;
     }
 
     void discoverAll() {
+        if (!hasMux) _detectMux();
         for (uint8_t s = 0; s < I2C_SLOTS; s++) {
             slots[s] = discoverSlot(s);
         }
+        deselectMux();
     }
 
     I2cSlotDiscovery discoverSlot(uint8_t slot) {
         I2cSlotDiscovery d;
         if (!selectSlot(slot)) return d;
-        delay(2);
+        delay(5);
 
         const uint8_t known[] = {VL6180X_ADDR, 0x3C, 0x3D, 0x40};
         for (uint8_t addr : known) {
+            if (_probeAddr(addr)) {
+                d.present = true;
+                d.addr    = addr;
+                d.type    = _classify(addr);
+                return d;
+            }
+        }
+
+        for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+            if (addr >= 0x70 && addr <= 0x77) continue;
             if (_probeAddr(addr)) {
                 d.present = true;
                 d.addr    = addr;
@@ -130,8 +159,12 @@ public:
 
 private:
     static bool _probeAddr(uint8_t addr) {
-        Wire.beginTransmission(addr);
-        return Wire.endTransmission() == 0;
+        for (uint8_t attempt = 0; attempt < 2; attempt++) {
+            Wire.beginTransmission(addr);
+            if (Wire.endTransmission() == 0) return true;
+            delayMicroseconds(250);
+        }
+        return false;
     }
 
     static I2cDetectedType _classify(uint8_t addr) {

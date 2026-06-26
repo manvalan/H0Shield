@@ -133,7 +133,11 @@ private:
             return;
         }
 
-        _cfg->save();
+        if (!_cfg->save()) {
+            _server.send(500, "application/json",
+                         "{\"error\":\"save_failed\",\"detail\":\"Scrittura config fallita\"}");
+            return;
+        }
         _server.send(200, "application/json", "{\"status\":\"ok\",\"restarting\":true}");
         _server.client().flush();
         delay(100);
@@ -165,7 +169,8 @@ private:
             for (uint8_t ch : {s.chR, s.chG, s.chV}) {
                 String key = "ch" + String(ch);
                 if (assigned.count(key)) {
-                    return String("Segnale '") + s.id + "' ch" + ch + " in conflitto";
+                    return String("Segnale '") + s.id + "' ch" + ch
+                         + " in conflitto con " + assigned[key];
                 }
                 assigned[key] = String("signal ") + s.id;
             }
@@ -196,13 +201,21 @@ private:
         for (uint8_t i = 0; i < _cfg->cfg.numAccessories; i++) {
             const AccessoryConfig& a = _cfg->cfg.accessories[i];
             if (a.id[0] == '\0') continue;
-            for (uint8_t ch : {a.muxCh, a.muxChBar}) {
-                if (ch >= MUX_CHANNELS) continue;
-                String key = "ch" + String(ch);
+            if (a.muxCh < MUX_CHANNELS && a.muxCh != MUX_CH_UNUSED) {
+                String key = "ch" + String(a.muxCh);
                 if (assigned.count(key)) {
-                    return String("Accessorio '") + a.id + "' ch" + ch + " in conflitto";
+                    return String("Accessorio '") + a.id + "' ch" + a.muxCh
+                         + " in conflitto con " + assigned[key];
                 }
                 assigned[key] = String("accessory ") + a.id;
+            }
+            if (a.profile == AccessoryProfile::LEVEL_XING &&
+                a.muxChBar < MUX_CHANNELS && a.muxChBar != MUX_CH_UNUSED) {
+                String key = "ch" + String(a.muxChBar);
+                if (assigned.count(key)) {
+                    return String("Accessorio '") + a.id + "' ch" + a.muxChBar + " in conflitto";
+                }
+                assigned[key] = String("accessory ") + a.id + " (bar)";
             }
         }
 
@@ -224,6 +237,7 @@ private:
         doc["mqtt"]          = _live ? _live->mqttConnected : false;
         doc["hostname"]      = _cfg->cfg.hostname;
         doc["free_heap"]     = ESP.getFreeHeap();
+        doc["display_driver"]= DisplayManager::driverEnabled();
         doc["wifi_ssid"]     = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : _cfg->cfg.wifiSsid;
         doc["wifi_connected"]= wifiHasStaIp();
         doc["setup_mode"]    = wifiInSetupMode(*_cfg);

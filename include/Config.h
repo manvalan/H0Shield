@@ -14,6 +14,7 @@ inline bool muxCanDriveDigital() {
     return MUX_PIN_SIG < 34 || MUX_PIN_SIG > 39;
 }
 #define MUX_CHANNELS 16
+#define MUX_CH_UNUSED 255   // MUX channel not assigned
 
 // ── I2C (VL6180X – dedicated bus, optional, NOT through MUX) ────────
 // Bus may be empty at boot: firmware scans and enables only found devices.
@@ -28,6 +29,7 @@ inline bool muxCanDriveDigital() {
 
 // ── Timing ──────────────────────────────────────────────────────────
 #define SENSOR_POLL_MS      20    // MUX full scan period
+#define I2C_DISCOVER_MS     5000  // periodic TCA9548 / OLED / ToF scan
 #define MQTT_HEARTBEAT_MS   5000
 #define WIFI_PORTAL_TIMEOUT 180   // seconds before captive portal gives up
 

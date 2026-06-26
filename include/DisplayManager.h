@@ -21,6 +21,14 @@
  */
 class DisplayManager {
 public:
+    static bool driverEnabled() {
+#ifdef USE_DISPLAY
+        return true;
+#else
+        return false;
+#endif
+    }
+
     void begin(ConfigManager& cfgMgr, const HardwareProbe& hw, I2cBus& bus) {
         _cfg = &cfgMgr;
         _hw  = &hw;
@@ -36,18 +44,7 @@ public:
             rd.dirty = true;
 
 #ifdef USE_DISPLAY
-            if (rd.present) {
-                rd.u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(
-                    U8G2_R0, U8X8_PIN_NONE, I2C_SCL, I2C_SDA);
-                rd.u8g2->setI2CAddress(static_cast<uint8_t>(rd.data.i2cAddr << 1));
-                rd.u8g2->begin();
-                rd.u8g2->setContrast(255);
-                rd.u8g2->clearBuffer();
-                rd.u8g2->sendBuffer();
-                Serial.printf("[DISP] OLED '%s' @ 0x%02X (%s)\n",
-                              rd.data.id, rd.data.i2cAddr,
-                              rd.data.type == DisplayType::TIMETABLE ? "timetable" : "platform");
-            }
+            if (rd.present) _initRuntimeOled(rd);
 #endif
             _count++;
         }
@@ -86,6 +83,16 @@ public:
                 }
             }
 
+            if (rd.data.type == DisplayType::PLATFORM &&
+                rd.platformView == PlatformView::DETAIL &&
+                now - rd.lastPlatformScrollMs >= 40) {
+                rd.lastPlatformScrollMs = now;
+                const int tw = static_cast<int>(strlen(rd.scrollStops)) * 6;
+                rd.scrollPos--;
+                if (rd.scrollPos < -tw) rd.scrollPos = 128;
+                rd.dirty = true;
+            }
+
             if (rd.dirty || now - _lastDrawMs >= 1000) {
                 rd.dirty = false;
 #ifdef USE_DISPLAY
@@ -94,6 +101,23 @@ public:
             }
         }
         _lastDrawMs = now;
+    }
+
+    /** Disegna subito i display dirty (test UI / MQTT). */
+    uint8_t flushDirty() {
+#ifdef USE_DISPLAY
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < _count; i++) {
+            RuntimeDisplay& rd = _rt[i];
+            if (!rd.dirty || !rd.present || !rd.u8g2) continue;
+            rd.dirty = false;
+            _draw(rd);
+            n++;
+        }
+        return n;
+#else
+        return 0;
+#endif
     }
 
     void subscribeAll(MQTTManager& mqtt) {
@@ -128,6 +152,7 @@ public:
             err = "Nessun display corrisponde (controlla station_id, binario, display_id)";
             return false;
         }
+        flushDirty();
         return true;
     }
 
@@ -144,8 +169,10 @@ public:
         }
 
         const uint8_t updated = _processInfoPayload(doc.as<JsonObject>());
-        if (updated > 0)
+        if (updated > 0) {
             Serial.printf("[DISP/SIP] Updated %u display(s)\n", updated);
+            flushDirty();
+        }
         return true;
     }
 
@@ -243,12 +270,23 @@ public:
     }
 
 private:
+    enum class PlatformView : uint8_t {
+        SIMPLE = 0,
+        DETAIL,
+        DEPARTURES,
+        WAITING
+    };
+
     struct RuntimeDisplay {
         DisplayConfig data;
         bool     present    = false;
         bool     dirty      = true;
         uint8_t  scrollRow  = 0;
         unsigned long lastScrollMs = 0;
+        PlatformView platformView = PlatformView::SIMPLE;
+        char     scrollStops[96] = "";
+        int16_t  scrollPos = 128;
+        unsigned long lastPlatformScrollMs = 0;
 #ifdef USE_DISPLAY
         U8G2_SH1106_128X64_NONAME_F_HW_I2C* u8g2 = nullptr;
 #endif
@@ -316,14 +354,22 @@ private:
 
     void _initRuntimeOled(RuntimeDisplay& rd) {
 #ifdef USE_DISPLAY
-        if (!rd.present || rd.u8g2) return;
-        rd.u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(
-            U8G2_R0, U8X8_PIN_NONE, I2C_SCL, I2C_SDA);
+        if (!rd.present) return;
+        uint8_t slot = rd.data.i2cSlot < I2C_SLOTS ? rd.data.i2cSlot : 0;
+        if (_bus) _bus->selectSlot(slot);
+
+        if (!rd.u8g2) {
+            rd.u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(
+                U8G2_R0, U8X8_PIN_NONE, I2C_SCL, I2C_SDA);
+        }
         rd.u8g2->setI2CAddress(static_cast<uint8_t>(rd.data.i2cAddr << 1));
         rd.u8g2->begin();
         rd.u8g2->setContrast(255);
         rd.u8g2->clearBuffer();
         rd.u8g2->sendBuffer();
+        Serial.printf("[DISP] OLED '%s' slot %u @ 0x%02X (%s)\n",
+                      rd.data.id, slot, rd.data.i2cAddr,
+                      rd.data.type == DisplayType::TIMETABLE ? "timetable" : "platform");
 #endif
     }
 
@@ -438,6 +484,116 @@ private:
         if (plat >= 1 && plat <= 99) d.platformNum = static_cast<uint8_t>(plat);
     }
 
+    static void _resetPlatformView(RuntimeDisplay& rd) {
+        rd.platformView = PlatformView::SIMPLE;
+        rd.scrollStops[0] = '\0';
+        rd.scrollPos = 128;
+    }
+
+    static bool _matchBinario(const DisplayConfig& d, JsonObject f) {
+        if (f["binario"].is<const char*>())
+            return static_cast<uint8_t>(atoi(f["binario"])) == d.platformNum;
+        if (f["binario"].is<int>())
+            return f["binario"].as<int>() == static_cast<int>(d.platformNum);
+        return false;
+    }
+
+    static bool _matchFermata(const DisplayConfig& d, JsonObject f) {
+        const char* st = f["stazione"] | "";
+        if (!st[0]) return false;
+        if (!_matchBinario(d, f)) return false;
+        if (d.stationName[0] && _ieq(st, d.stationName)) return true;
+        if (d.stationId[0] && _ieq(st, d.stationId)) return true;
+        return false;
+    }
+
+    static void _buildScrollStops(const DisplayConfig& d, JsonObject fermataLocale,
+                                  JsonObject treno, char* buf, size_t n) {
+        strlcpy(buf, "Ferma a: ", n);
+        bool dopoDiMe = false;
+        for (JsonObject f : treno["fermate"].as<JsonArray>()) {
+            const char* nome = f["stazione"] | "";
+            if (dopoDiMe) {
+                if (strcmp(buf, "Ferma a: ") != 0) strlcat(buf, " - ", n);
+                const char* orario = f["orario"] | "";
+                if (orario[0]) {
+                    strlcat(buf, orario, n);
+                    strlcat(buf, " ", n);
+                }
+                strlcat(buf, nome, n);
+            }
+            if (_ieq(nome, d.stationName) ||
+                (d.stationId[0] && _ieq(nome, d.stationId)) ||
+                _ieq(nome, fermataLocale["stazione"] | ""))
+                dopoDiMe = true;
+        }
+    }
+
+    static void _fillDeparturesAtStation(DisplayConfig& d, JsonArray treni) {
+        d.numRows = 0;
+        for (JsonObject t : treni) {
+            for (JsonObject f : t["fermate"].as<JsonArray>()) {
+                const char* st = f["stazione"] | "";
+                if (!st[0]) continue;
+                if (d.stationName[0] && !_ieq(st, d.stationName) &&
+                    !(d.stationId[0] && _ieq(st, d.stationId)))
+                    continue;
+                if (d.numRows >= DisplayConfig::MAX_ROWS) return;
+                TimetableRowConfig& r = d.rows[d.numRows++];
+                strlcpy(r.timeStr, f["orario"] | "--:--", sizeof(r.timeStr));
+                strlcpy(r.destination, t["destinazione"] | "Treno", sizeof(r.destination));
+                const char* bin = f["binario"] | "-";
+                strlcpy(r.platformBin, bin, sizeof(r.platformBin));
+                r.status[0] = '\0';
+            }
+        }
+    }
+
+    uint8_t _applyInfoRailTreni(JsonArray treni) {
+        if (treni.isNull()) return 0;
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < _count; i++) {
+            RuntimeDisplay& rd = _rt[i];
+            if (rd.data.type != DisplayType::PLATFORM) continue;
+
+            bool trovato = false;
+            for (JsonObject treno : treni) {
+                for (JsonObject f : treno["fermate"].as<JsonArray>()) {
+                    if (!_matchFermata(rd.data, f)) continue;
+                    const int mins = treno["minutiMancanti"] | 99;
+                    const char* dest = treno["destinazione"] | "DEST.";
+                    const char* orario = f["orario"] | "--:--";
+                    strlcpy(rd.data.destination, dest, sizeof(rd.data.destination));
+                    strlcpy(rd.data.departureTime, orario, sizeof(rd.data.departureTime));
+                    rd.data.status[0] = '\0';
+
+                    if (mins <= 10) {
+                        rd.platformView = PlatformView::DETAIL;
+                        _buildScrollStops(rd.data, f, treno, rd.scrollStops, sizeof(rd.scrollStops));
+                        rd.scrollPos = 128;
+                    } else {
+                        rd.platformView = PlatformView::DEPARTURES;
+                        rd.scrollStops[0] = '\0';
+                        _fillDeparturesAtStation(rd.data, treni);
+                    }
+                    trovato = true;
+                    break;
+                }
+                if (trovato) break;
+            }
+            if (!trovato) {
+                rd.platformView = PlatformView::WAITING;
+                rd.scrollStops[0] = '\0';
+                rd.data.destination[0] = '\0';
+                rd.data.departureTime[0] = '\0';
+                rd.data.status[0] = '\0';
+            }
+            rd.dirty = true;
+            n++;
+        }
+        return n;
+    }
+
     static void _applyTimetableRow(TimetableRowConfig& row, JsonObject ro) {
         const char* t = ro["time"] | "";
         const char* dest = ro["destination"] | ro["dest"] | "";
@@ -455,6 +611,7 @@ private:
             RuntimeDisplay& rd = _rt[i];
             if (!_matchInfoPlatform(rd.data, msg)) continue;
             _applyPlatformFields(rd.data, msg);
+            _resetPlatformView(rd);
             rd.dirty = true;
             n++;
         }
@@ -517,6 +674,9 @@ private:
             updated += _applyInfoPlatform(doc);
         }
 
+        if (doc["treni"].is<JsonArray>())
+            updated += _applyInfoRailTreni(doc["treni"].as<JsonArray>());
+
         return updated;
     }
 
@@ -546,7 +706,7 @@ private:
     }
 
 #ifdef USE_DISPLAY
-    void _drawPlatform(U8G2& u8g2, const DisplayConfig& d) {
+    void _drawPlatformSimple(U8G2& u8g2, const DisplayConfig& d) {
         u8g2.clearBuffer();
         u8g2.setFont(u8g2_font_6x10_tf);
         u8g2.drawStr(0, 10, "BINARIO");
@@ -566,6 +726,68 @@ private:
         _truncate(line, 20);
         u8g2.drawStr(0, 58, line);
         u8g2.sendBuffer();
+    }
+
+    void _drawPlatformDetail(U8G2& u8g2, const RuntimeDisplay& rd) {
+        const DisplayConfig& d = rd.data;
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        char hdr[40];
+        const char* st = d.stationName[0] ? d.stationName : d.stationId;
+        snprintf(hdr, sizeof(hdr), "%s - BIN %u", st[0] ? st : "?", d.platformNum);
+        _truncate(hdr, 20);
+        u8g2.drawStr(0, 10, hdr);
+        u8g2.drawHLine(0, 12, 128);
+
+        u8g2.setFont(u8g2_font_logisoso16_tf);
+        char dest[32];
+        strlcpy(dest, d.destination[0] ? d.destination : "DEST.", sizeof(dest));
+        _truncate(dest, 14);
+        u8g2.drawStr(0, 30, dest);
+
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.drawStr(0, 46, d.departureTime[0] ? d.departureTime : "--:--");
+        u8g2.drawHLine(0, 50, 128);
+        u8g2.drawStr(rd.scrollPos, 62, rd.scrollStops[0] ? rd.scrollStops : "");
+        u8g2.sendBuffer();
+    }
+
+    void _drawPlatformDepartures(U8G2& u8g2, const DisplayConfig& d) {
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.drawStr(0, 10, "PROSSIME PARTENZE");
+        u8g2.drawHLine(0, 12, 128);
+        int y = 24;
+        const uint8_t rows = d.numRows ? d.numRows : 0;
+        for (uint8_t i = 0; i < rows && y <= 60; i++) {
+            const TimetableRowConfig& r = d.rows[i];
+            char line[40];
+            snprintf(line, sizeof(line), "%s %-10s %s",
+                     r.timeStr[0] ? r.timeStr : "00:00",
+                     r.destination[0] ? r.destination : "Treno",
+                     r.platformBin[0] ? r.platformBin : "-");
+            _truncate(line, 21);
+            u8g2.drawStr(0, y, line);
+            y += 12;
+        }
+        u8g2.sendBuffer();
+    }
+
+    void _drawPlatformWaiting(U8G2& u8g2) {
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tf);
+        u8g2.drawStr(16, 28, "IN ATTESA DI");
+        u8g2.drawStr(12, 42, "INFORMAZIONI");
+        u8g2.sendBuffer();
+    }
+
+    void _drawPlatform(U8G2& u8g2, const RuntimeDisplay& rd) {
+        switch (rd.platformView) {
+            case PlatformView::DETAIL:     _drawPlatformDetail(u8g2, rd); break;
+            case PlatformView::DEPARTURES: _drawPlatformDepartures(u8g2, rd.data); break;
+            case PlatformView::WAITING:    _drawPlatformWaiting(u8g2); break;
+            default:                       _drawPlatformSimple(u8g2, rd.data); break;
+        }
     }
 
     void _drawTimetable(U8G2& u8g2, RuntimeDisplay& rd) {
@@ -606,8 +828,11 @@ private:
     }
 
     void _draw(RuntimeDisplay& rd) {
+        if (!rd.u8g2 || !rd.present) return;
+        uint8_t slot = rd.data.i2cSlot < I2C_SLOTS ? rd.data.i2cSlot : 0;
+        if (_bus && !_bus->selectSlot(slot)) return;
         if (rd.data.type == DisplayType::PLATFORM)
-            _drawPlatform(*rd.u8g2, rd.data);
+            _drawPlatform(*rd.u8g2, rd);
         else
             _drawTimetable(*rd.u8g2, rd);
     }

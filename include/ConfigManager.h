@@ -79,8 +79,8 @@ enum class AccessoryProfile : uint8_t {
 struct AccessoryConfig {
     char     id[16]      = "";
     AccessoryProfile profile = AccessoryProfile::GENERIC;
-    uint8_t  muxCh       = 0;     // primary relay (lights / generic / bell / gate)
-    uint8_t  muxChBar    = 0;     // level_xing barrier relay
+    uint8_t  muxCh       = MUX_CH_UNUSED;  // primary relay (lights / generic / bell / gate)
+    uint8_t  muxChBar    = MUX_CH_UNUSED;  // level_xing barrier relay
     uint16_t pulseMs     = 300;   // bell duration or PL blink half-period
 };
 
@@ -151,12 +151,18 @@ public:
     BoardConfig cfg;
 
     bool begin() {
-        if (!LittleFS.begin(true)) {
-            Serial.println("[CFG] LittleFS mount failed");
-            return false;
+        if (!LittleFS.begin(false)) {
+            Serial.println("[CFG] LittleFS mount failed — retry with format");
+            if (!LittleFS.begin(true)) {
+                Serial.println("[CFG] LittleFS unavailable");
+                return false;
+            }
         }
         return load();
     }
+
+    bool _loadFromJsonString(const String& json);
+    bool _logLoaded();
 
     bool load();
     bool save();
@@ -190,25 +196,19 @@ inline const char* ConfigManager::profileName(AccessoryProfile p) {
     return ConfigJson::profileName(p);
 }
 
-inline bool ConfigManager::load() {
-    if (!LittleFS.exists(CONFIG_PATH)) {
-        Serial.println("[CFG] No config found – using defaults");
-        return save();
-    }
-    File f = LittleFS.open(CONFIG_PATH, "r");
-    if (!f) return false;
-
+inline bool ConfigManager::_loadFromJsonString(const String& json) {
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
+    DeserializationError err = deserializeJson(doc, json);
     if (err) {
         Serial.printf("[CFG] JSON parse error: %s\n", err.c_str());
         return false;
     }
-
     ConfigJson::readFile(cfg, doc.as<JsonObject>());
     _syncWifiFromNvs(cfg);
+    return true;
+}
 
+inline bool ConfigManager::_logLoaded() {
     Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u, tof_blocks: %u, displays: %u, accessories: %u, scenarios: %u\n",
                   cfg.hostname, cfg.mqttBroker,
                   cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb, cfg.numTofBlocks,
@@ -216,15 +216,59 @@ inline bool ConfigManager::load() {
     return true;
 }
 
+inline bool ConfigManager::load() {
+    if (LittleFS.exists(CONFIG_PATH)) {
+        File f = LittleFS.open(CONFIG_PATH, "r");
+        if (f) {
+            String json = f.readString();
+            f.close();
+            if (json.length() > 0 && _loadFromJsonString(json))
+                return _logLoaded();
+            Serial.println("[CFG] config.json illeggibile — provo NVS");
+        }
+    } else {
+        Serial.println("[CFG] Nessun config.json su LittleFS");
+    }
+
+    const String nvs = SecureStore::loadConfigJson();
+    if (nvs.length() > 0 && _loadFromJsonString(nvs)) {
+        Serial.println("[CFG] Ripristinato da NVS");
+        save();   // riscrive LittleFS
+        return _logLoaded();
+    }
+
+    if (!LittleFS.exists(CONFIG_PATH)) {
+        Serial.println("[CFG] Prima configurazione — defaults");
+        return save();
+    }
+    return false;
+}
+
 inline bool ConfigManager::save() {
     _syncWifiFromNvs(cfg);
     JsonDocument doc;
     ConfigJson::write(cfg, doc.to<JsonObject>(), false);
 
+    String json;
+    serializeJson(doc, json);
+    if (json.length() < 8) return false;
+
     File f = LittleFS.open(CONFIG_PATH, "w");
-    if (!f) return false;
-    serializeJson(doc, f);
+    if (!f) {
+        Serial.println("[CFG] LittleFS write failed");
+        return false;
+    }
+    const size_t n = serializeJson(doc, f);
+    f.flush();
     f.close();
-    Serial.println("[CFG] Config saved");
+    if (n != json.length()) {
+        Serial.printf("[CFG] LittleFS write incomplete (%u/%u)\n", n, json.length());
+        return false;
+    }
+
+    if (!SecureStore::saveConfigJson(json)) {
+        Serial.println("[CFG] WARN: backup NVS fallito");
+    }
+    Serial.printf("[CFG] Config saved (%u bytes)\n", n);
     return true;
 }

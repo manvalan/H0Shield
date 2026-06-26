@@ -128,9 +128,9 @@ inline void write(const BoardConfig& c, JsonObject doc, bool forApi = false) {
         o["id"] = a.id;
         o["profile"] = profileName(a.profile);
         if (a.profile == AccessoryProfile::LEVEL_XING) {
-            o["mux_ch_lights"] = a.muxCh;
-            o["mux_ch_bar"] = a.muxChBar;
-        } else {
+            if (a.muxCh != MUX_CH_UNUSED) o["mux_ch_lights"] = a.muxCh;
+            if (a.muxChBar != MUX_CH_UNUSED) o["mux_ch_bar"] = a.muxChBar;
+        } else if (a.muxCh != MUX_CH_UNUSED) {
             o["mux_ch"] = a.muxCh;
         }
         o["pulse_ms"] = a.pulseMs;
@@ -154,6 +154,14 @@ inline void write(const BoardConfig& c, JsonObject doc, bool forApi = false) {
         if (s.destOcc[0]) o["dest_occupied"] = s.destOcc;
         if (s.destFree[0]) o["dest_free"] = s.destFree;
     }
+}
+
+inline uint8_t _parseMuxCh(JsonObject ac, const char* key, const char* altKey = nullptr) {
+    if (ac[key].is<int>() || ac[key].is<uint8_t>())
+        return static_cast<uint8_t>(ac[key].as<uint8_t>());
+    if (altKey && (ac[altKey].is<int>() || ac[altKey].is<uint8_t>()))
+        return static_cast<uint8_t>(ac[altKey].as<uint8_t>());
+    return MUX_CH_UNUSED;
 }
 
 inline void readFile(BoardConfig& c, JsonObject doc) {
@@ -263,8 +271,13 @@ inline void readFile(BoardConfig& c, JsonObject doc) {
         AccessoryConfig& a = c.accessories[c.numAccessories++];
         strlcpy(a.id, ac["id"] | "", sizeof(a.id));
         a.profile = parseProfile(ac["profile"] | "generic");
-        a.muxCh = ac["mux_ch"] | ac["mux_ch_lights"] | 0;
-        a.muxChBar = ac["mux_ch_bar"] | 0;
+        if (a.profile == AccessoryProfile::LEVEL_XING) {
+            a.muxCh = _parseMuxCh(ac, "mux_ch_lights", "mux_ch");
+            a.muxChBar = _parseMuxCh(ac, "mux_ch_bar");
+        } else {
+            a.muxCh = _parseMuxCh(ac, "mux_ch", "mux_ch_lights");
+            a.muxChBar = MUX_CH_UNUSED;
+        }
         a.pulseMs = ac["pulse_ms"] | 300;
     }
 
@@ -418,8 +431,13 @@ inline void readApi(BoardConfig& c, JsonObject doc) {
             AccessoryConfig& a = c.accessories[c.numAccessories++];
             strlcpy(a.id, ac["id"] | "", sizeof(a.id));
             a.profile = parseProfile(ac["profile"] | "generic");
-            a.muxCh = ac["mux_ch"] | ac["mux_ch_lights"] | 0;
-            a.muxChBar = ac["mux_ch_bar"] | 0;
+            if (a.profile == AccessoryProfile::LEVEL_XING) {
+                a.muxCh = _parseMuxCh(ac, "mux_ch_lights", "mux_ch");
+                a.muxChBar = _parseMuxCh(ac, "mux_ch_bar");
+            } else {
+                a.muxCh = _parseMuxCh(ac, "mux_ch", "mux_ch_lights");
+                a.muxChBar = MUX_CH_UNUSED;
+            }
             a.pulseMs = ac["pulse_ms"] | 300;
         }
     }
