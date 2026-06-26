@@ -104,11 +104,22 @@ void setup() {
     }
     setupWiFi(cfgMgr);
 
-    // mDNS (best-effort — usare sempre http://<IP>/)
-    ensureMdns(cfgMgr);
+    // Web subito — accessibile via AP 192.168.4.1 mentre il resto inizializza
+    webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
+                                             const String& cmd, const String& extra) {
+        if (type == "signal") {
+            String xml = "<sg id=\"" + id + "\" cmd=\"aspect\" aspect=\"" + cmd + "\"/>";
+            rocrail.handle(ROCRAIL_TOPIC_SG_CMD, xml, mqtt, mux);
+        } else if (type == "turnout") {
+            String xml = "<sw id=\"" + id + "\" cmd=\"" + cmd + "\" addr1=\"0\"/>";
+            rocrail.handle(ROCRAIL_TOPIC_SW_CMD, xml, mqtt, mux);
+        } else if (type == "accessory") {
+            accessoryMgr.handleCommand(id, cmd);
+            accessoryMgr.publishState(mqtt);
+        }
+    }, &displayMgr, &i2cBus);
 
-    // ── OTA ───────────────────────────────────────────────────────────
-    ota.begin(cfgMgr);
+    ensureMdns(cfgMgr);
 
     // ── Phase 2: Hardware init (all optional except WiFi/web) ─────────
     HardwareProbe hw;
@@ -181,24 +192,15 @@ void setup() {
         liveStatus.tof.present = false;
     }
 
-    webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
-                                             const String& cmd, const String& extra) {
-        // Manual test from web UI → inject as MQTT command
-        if (type == "signal") {
-            String xml = "<sg id=\"" + id + "\" cmd=\"aspect\" aspect=\"" + cmd + "\"/>";
-            rocrail.handle(ROCRAIL_TOPIC_SG_CMD, xml, mqtt, mux);
-        } else if (type == "turnout") {
-            String xml = "<sw id=\"" + id + "\" cmd=\"" + cmd + "\" addr1=\"0\"/>";
-            rocrail.handle(ROCRAIL_TOPIC_SW_CMD, xml, mqtt, mux);
-        } else if (type == "accessory") {
-            accessoryMgr.handleCommand(id, cmd);
-            accessoryMgr.publishState(mqtt);
-        }
-    }, &displayMgr, &i2cBus);
+    // ── OTA ───────────────────────────────────────────────────────────
+    ota.begin(cfgMgr);
 
-    Serial.println("==== Boot complete ====\n");
-    Serial.printf("==== Apri: http://%s/  oppure  http://%s.local/ ====\n",
-                  WiFi.localIP().toString().c_str(), cfgMgr.cfg.hostname);
+    Serial.println("==== Boot complete ====");
+    Serial.printf("==== AP sempre attivo: http://%s/ ====\n",
+                  WiFi.softAPIP().toString().c_str());
+    if (wifiHasStaIp())
+        Serial.printf("==== Rete di casa: http://%s/ ====\n",
+                      WiFi.localIP().toString().c_str());
     Serial.printf("[SUM] MUX:%u ch | I2C:%s%s | MQTT:%s | Web:OK\n",
                   muxUsed,
                   tofPresent ? "VL6180X" : "",
@@ -214,6 +216,7 @@ void setup() {
 // ─────────────────────────────────────────────────────────────────────
 void loop() {
     checkResetButton();
+    wifiBootLoop(cfgMgr);
     wifiJob.loop();
     ensureMdns(cfgMgr);
     if (wifiHasStaIp()) wifiSaveLastIp(cfgMgr);

@@ -7,13 +7,10 @@
 #include "SecureStore.h"
 
 /**
- * WiFi non volatile:
- *   - SSID + last_sta_ip → config.json (LittleFS)
- *   - Password           → NVS namespace "sh0sec"
- *   - Credenziali ESP    → NVS WiFi (persistent) dopo connessione OK
+ * Regola d'oro: l'AP ShieldH0-* è SEMPRE attivo → http://192.168.4.1/
+ * La connessione alla rete di casa avviene in background (AP+STA).
  *
- * Accesso web: preferire http://<IP-LAN>/ — mDNS *.local spesso non funziona.
- * Fallback: AP ShieldH0-<hostname> → http://192.168.4.1/
+ * Persistenza: SSID + last_sta_ip (LittleFS), password (NVS sh0sec).
  */
 
 struct WiFiAttemptResult {
@@ -78,35 +75,73 @@ inline bool wifiSaveLastIp(ConfigManager& cfg) {
     return cfg.save();
 }
 
-inline void wifiPersistCredentials(const char* ssid, const char* pass) {
-    SecureStore::saveWifiPassword(pass ? pass : "");
-    WiFi.persistent(true);
-    if (pass && pass[0])
-        WiFi.begin(ssid, pass);
-    else
-        WiFi.begin(ssid);
-}
-
-inline void _startSetupAp(ConfigManager& cfg) {
+/** AP sempre su 192.168.4.1 — accesso garantito alla scheda. */
+inline void wifiEnsureAp(ConfigManager& cfg) {
     const String apName = String("ShieldH0-") + cfg.cfg.hostname;
-    if (!(WiFi.getMode() & WIFI_AP))
-        WiFi.mode(WIFI_AP_STA);
-    else if (WiFi.getMode() != WIFI_AP_STA)
-        WiFi.mode(WIFI_AP_STA);
-    if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0))
+    WiFi.mode(WIFI_AP_STA);
+    if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+        WiFi.softAPConfig(
+            IPAddress(192, 168, 4, 1),
+            IPAddress(192, 168, 4, 1),
+            IPAddress(255, 255, 255, 0));
         WiFi.softAP(apName.c_str());
-    Serial.printf("[WIFI] AP: %s → http://%s/\n",
+    }
+    Serial.printf("[WIFI] AP '%s' → http://%s/\n",
                   apName.c_str(), WiFi.softAPIP().toString().c_str());
 }
 
-inline void _beginSta(const char* ssid, const char* pass) {
-    WiFi.mode(WIFI_STA);
+/** Avvia/riprende STA senza spegnere l'AP. */
+inline void wifiBeginSta(ConfigManager& cfg, const char* ssid, const char* pass) {
+    wifiEnsureAp(cfg);
+    wifiApplyHostname(cfg);
     WiFi.setAutoReconnect(true);
     WiFi.setSleep(false);
     if (pass && pass[0])
         WiFi.begin(ssid, pass);
     else
         WiFi.begin(ssid);
+}
+
+inline void wifiSaveCredentials(ConfigManager& cfg, const char* ssid, const char* pass) {
+    SecureStore::saveWifiPassword(pass ? pass : "");
+    strlcpy(cfg.cfg.wifiSsid, ssid, sizeof(cfg.cfg.wifiSsid));
+}
+
+// ── Boot: connessione STA in background (AP già attivo) ───────────────
+struct WiFiBootConnect {
+    bool          active  = false;
+    unsigned long started = 0;
+    static constexpr uint32_t TIMEOUT_MS = 20000;
+};
+
+inline WiFiBootConnect wifiBoot;
+
+inline void wifiBootStart(ConfigManager& cfg) {
+    if (cfg.cfg.wifiSsid[0] == '\0') return;
+    String pass = SecureStore::loadWifiPassword();
+    wifiBeginSta(cfg, cfg.cfg.wifiSsid, pass.c_str());
+    wifiBoot.active  = true;
+    wifiBoot.started = millis();
+    Serial.printf("[WIFI] Boot STA async → '%s'\n", cfg.cfg.wifiSsid);
+}
+
+inline void wifiBootLoop(ConfigManager& cfg) {
+    if (!wifiBoot.active) return;
+
+    if (wifiHasStaIp()) {
+        wifiSaveLastIp(cfg);
+        wifiBoot.active = false;
+        Serial.printf("[WIFI] Boot STA OK – IP %s\n", WiFi.localIP().toString().c_str());
+        return;
+    }
+
+    wl_status_t st = WiFi.status();
+    if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL ||
+        millis() - wifiBoot.started > WiFiBootConnect::TIMEOUT_MS) {
+        wifiBoot.active = false;
+        Serial.printf("[WIFI] Boot STA fallita (status %d) — usa AP http://192.168.4.1/\n", st);
+        wifiEnsureAp(cfg);
+    }
 }
 
 class WiFiJobManager {
@@ -145,8 +180,8 @@ public:
     }
 
     bool startScan() {
-        if (busy() || restartPending()) return false;
-        if (_cfg) _startSetupAp(*_cfg);
+        if (busy() || restartPending() || !_cfg) return false;
+        wifiEnsureAp(*_cfg);
         WiFi.scanDelete();
         WiFi.scanNetworks(true, true);
         _phase   = Phase::SCANNING;
@@ -173,11 +208,7 @@ public:
         _phase         = Phase::CONNECTING;
         _message       = String("Connessione a ") + ssid + "…";
 
-        wifiApplyHostname(*_cfg);
-        WiFi.disconnect(true, false);
-        delay(100);
-        _beginSta(ssid.c_str(), pass.c_str());
-
+        wifiBeginSta(*_cfg, ssid.c_str(), pass.c_str());
         Serial.printf("[WIFI] Connect job → '%s' (save=%d)\n", ssid.c_str(), save);
         return true;
     }
@@ -207,10 +238,11 @@ public:
                                  : (_phase == Phase::SCANNING) ? SCAN_TIMEOUT_MS : 0;
         if (_phase == Phase::SUCCESS) {
             const String ip = _savedIp.length() ? _savedIp : WiFi.localIP().toString();
-            doc["job_ip"]    = ip;
-            doc["job_rssi"]  = WiFi.RSSI();
-            doc["job_saved"] = _saved;
+            doc["job_ip"]      = ip;
+            doc["job_rssi"]    = WiFi.RSSI();
+            doc["job_saved"]   = _saved;
             doc["job_web_url"] = String("http://") + ip + "/";
+            doc["job_ap_url"]  = String("http://") + WiFi.softAPIP().toString() + "/";
         }
         if (_phase == Phase::FAILED) {
             doc["job_status"]  = wifiStatusLabel(_lastStatus);
@@ -284,44 +316,38 @@ private:
         if (wifiHasStaIp()) {
             _savedIp = WiFi.localIP().toString();
             if (_saveOnSuccess && _cfg) {
-                wifiPersistCredentials(_targetSsid.c_str(), _pendingPass.c_str());
-                strlcpy(_cfg->cfg.wifiSsid, _targetSsid.c_str(), sizeof(_cfg->cfg.wifiSsid));
+                wifiSaveCredentials(*_cfg, _targetSsid.c_str(), _pendingPass.c_str());
                 strlcpy(_cfg->cfg.lastStaIp, _savedIp.c_str(), sizeof(_cfg->cfg.lastStaIp));
                 if (!_cfg->save()) {
                     _phase   = Phase::FAILED;
                     _message = "Errore salvataggio configurazione";
-                    _startSetupAp(*_cfg);
                     Serial.println("[WIFI] cfg.save() failed");
                     return;
                 }
-                _saved   = true;
-                _phase   = Phase::SUCCESS;
-                _message = String("Connesso — IP ") + _savedIp + " — riavvio…";
+                _saved     = true;
+                _phase     = Phase::SUCCESS;
+                _message   = String("Connesso IP ") + _savedIp + " — riavvio…";
                 _restartAt = millis() + RESTART_DELAY_MS;
-                Serial.printf("[WIFI] Saved '%s' IP %s — restart %u ms\n",
-                              _targetSsid.c_str(), _savedIp.c_str(), RESTART_DELAY_MS);
             } else {
                 _phase   = Phase::SUCCESS;
-                _message = String("Connesso — IP ") + _savedIp;
-                if (_cfg) _startSetupAp(*_cfg);
+                _message = String("Connesso IP ") + _savedIp;
             }
+            wifiEnsureAp(*_cfg);
             return;
         }
 
         if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) {
-            WiFi.disconnect(true, false);
-            if (_cfg) _startSetupAp(*_cfg);
             _phase   = Phase::FAILED;
             _message = wifiStatusMessageIt(st);
+            wifiEnsureAp(*_cfg);
             return;
         }
 
         if (millis() >= _deadline) {
-            WiFi.disconnect(true, false);
-            if (_cfg) _startSetupAp(*_cfg);
             _phase      = Phase::FAILED;
             _lastStatus = WiFi.status();
             _message    = wifiStatusMessageIt(WL_DISCONNECTED);
+            wifiEnsureAp(*_cfg);
             Serial.println("[WIFI] Connect timeout");
         }
     }
@@ -329,52 +355,16 @@ private:
 
 inline WiFiJobManager wifiJob;
 
-inline bool connectSavedWiFi(ConfigManager& cfg, uint16_t timeoutSec = 25) {
-    if (cfg.cfg.wifiSsid[0] == '\0') return false;
-
-    wifiApplyHostname(cfg);
-    String pass = SecureStore::loadWifiPassword();
-    WiFi.persistent(true);
-    WiFi.disconnect(true, false);
-    delay(100);
-    _beginSta(cfg.cfg.wifiSsid, pass.c_str());
-
-    Serial.printf("[WIFI] Boot connect → '%s'\n", cfg.cfg.wifiSsid);
-    const unsigned long deadline = millis() + timeoutSec * 1000UL;
-    while (!wifiHasStaIp() && millis() < deadline) {
-        delay(250);
-        wl_status_t st = WiFi.status();
-        if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) break;
-        Serial.print('.');
-    }
-    Serial.println();
-
-    if (wifiHasStaIp()) {
-        wifiSaveLastIp(cfg);
-        Serial.printf("[WIFI] Connesso – IP: %s RSSI: %d\n",
-                      WiFi.localIP().toString().c_str(), WiFi.RSSI());
-        return true;
-    }
-
-    Serial.printf("[WIFI] Boot connect failed (status %d)\n", WiFi.status());
-    WiFi.disconnect(true, false);
-    return false;
-}
-
-inline void startSetupAP(ConfigManager& cfg) {
-    _startSetupAp(cfg);
-    Serial.println("[WIFI] Modalità setup AP");
-}
-
 inline bool setupWiFi(ConfigManager& cfg) {
+    WiFi.persistent(false);
+    WiFi.disconnect(true, false);
+    delay(50);
     wifiJob.begin(&cfg);
 
-    if (connectSavedWiFi(cfg)) {
-        _startSetupAp(cfg);
-        return true;
-    }
+    wifiEnsureAp(cfg);
+    wifiBootStart(cfg);
 
-    startSetupAP(cfg);
+    Serial.println("[WIFI] Pronto — connettiti all'AP ShieldH0 e apri http://192.168.4.1/");
     return true;
 }
 

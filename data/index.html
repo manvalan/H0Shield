@@ -334,7 +334,11 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
     <button id="btn-wifi-connect" class="btn btn-p" onclick="connectWifi()">Connetti</button>
     <div id="wifi-result"></div>
-    <p style="font-size:.72rem;color:var(--muted);margin-top:12px">La scheda resta raggiungibile durante connessione e scansione — lo stato si aggiorna qui sotto.</p>
+    <p style="font-size:.72rem;color:var(--muted);margin-top:12px">
+      <strong>Accesso garantito:</strong> WiFi <code>ShieldH0-${cfg.hostname||'ShieldH0'}</code> →
+      <a href="http://192.168.4.1/" style="color:var(--accent)">http://192.168.4.1/</a>
+      (sempre attivo, anche con rete di casa configurata).
+    </p>
   </div>
   <div class="card">
     <div class="card-title">Sicurezza pannello web</div>
