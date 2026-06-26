@@ -27,7 +27,7 @@ inline bool wifiApRunning() {
 }
 
 inline bool wifiInSetupMode(const ConfigManager& cfg) {
-    return cfg.cfg.wifiSsid[0] == '\0' || !wifiHasStaIp();
+    return cfg.cfg.wifiSsid[0] == '\0';
 }
 
 inline const char* wifiStatusLabel(wl_status_t st) {
@@ -77,12 +77,21 @@ inline bool wifiSaveLastIp(ConfigManager& cfg) {
     const String ip = WiFi.localIP().toString();
     if (ip == cfg.cfg.lastStaIp) return true;
     strlcpy(cfg.cfg.lastStaIp, ip.c_str(), sizeof(cfg.cfg.lastStaIp));
+    SecureStore::saveLastStaIp(ip);
     return cfg.save();
 }
 
 inline void wifiSaveCredentials(ConfigManager& cfg, const char* ssid, const char* pass) {
     SecureStore::saveWifiPassword(pass ? pass : "");
-    strlcpy(cfg.cfg.wifiSsid, ssid, sizeof(cfg.cfg.wifiSsid));
+    SecureStore::saveWifiSsid(ssid ? ssid : "");
+    strlcpy(cfg.cfg.wifiSsid, ssid ? ssid : "", sizeof(cfg.cfg.wifiSsid));
+    Serial.printf("[WIFI] Credenziali salvate in NVS → '%s'\n", ssid ? ssid : "");
+}
+
+inline void wifiRestoreFromNvs(ConfigManager& cfg) {
+    ConfigManager::_syncWifiFromNvs(cfg.cfg);
+    if (cfg.cfg.wifiSsid[0])
+        Serial.printf("[WIFI] Rete in memoria: '%s'\n", cfg.cfg.wifiSsid);
 }
 
 inline void wifiStopAp() {
@@ -136,7 +145,7 @@ inline void wifiBeginStaWithAp(ConfigManager& cfg, const char* ssid, const char*
 struct WiFiBootConnect {
     bool          active  = false;
     unsigned long started = 0;
-    static constexpr uint32_t TIMEOUT_MS = 18000;
+    static constexpr uint32_t TIMEOUT_MS = 45000;
 };
 
 inline WiFiBootConnect wifiBoot;
@@ -301,12 +310,10 @@ private:
             if (_saveOnSuccess && _cfg) {
                 wifiSaveCredentials(*_cfg, _targetSsid.c_str(), _pendingPass.c_str());
                 strlcpy(_cfg->cfg.lastStaIp, _savedIp.c_str(), sizeof(_cfg->cfg.lastStaIp));
-                if (!_cfg->save()) {
-                    _phase   = Phase::FAILED;
-                    _message = "Errore salvataggio configurazione";
-                    return;
-                }
+                SecureStore::saveLastStaIp(_savedIp);
                 _saved = true;
+                if (!_cfg->save())
+                    Serial.println("[WIFI] WARN: config.json non scritto — WiFi resta in NVS");
             }
             wifiStopAp();
             wifiBoot.active = false;
@@ -319,7 +326,7 @@ private:
         if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) {
             _phase   = Phase::FAILED;
             _message = wifiStatusMessageIt(st);
-            if (_cfg && wifiInSetupMode(*_cfg)) wifiStartSetupAp(*_cfg);
+            if (_cfg && _cfg->cfg.wifiSsid[0] == '\0') wifiStartSetupAp(*_cfg);
             return;
         }
 
@@ -327,21 +334,12 @@ private:
             _phase      = Phase::FAILED;
             _lastStatus = WiFi.status();
             _message    = wifiStatusMessageIt(WL_DISCONNECTED);
-            if (_cfg && wifiInSetupMode(*_cfg)) wifiStartSetupAp(*_cfg);
+            if (_cfg && _cfg->cfg.wifiSsid[0] == '\0') wifiStartSetupAp(*_cfg);
         }
     }
 };
 
 inline WiFiJobManager wifiJob;
-
-inline void wifiBootStart(ConfigManager& cfg) {
-    if (cfg.cfg.wifiSsid[0] == '\0') return;
-    String pass = SecureStore::loadWifiPassword();
-    wifiBeginSta(cfg, cfg.cfg.wifiSsid, pass.c_str());
-    wifiBoot.active  = true;
-    wifiBoot.started = millis();
-    Serial.printf("[WIFI] Boot → '%s' (solo STA)\n", cfg.cfg.wifiSsid);
-}
 
 inline void wifiBootLoop(ConfigManager& cfg) {
     if (!wifiBoot.active) return;
@@ -350,31 +348,48 @@ inline void wifiBootLoop(ConfigManager& cfg) {
         wifiSaveLastIp(cfg);
         wifiStopAp();
         wifiBoot.active = false;
-        Serial.printf("[WIFI] Boot OK – http://%s/\n", WiFi.localIP().toString().c_str());
+        Serial.printf("[WIFI] Boot OK – '%s' http://%s/\n",
+                      cfg.cfg.wifiSsid, WiFi.localIP().toString().c_str());
         return;
     }
 
     wl_status_t st = WiFi.status();
-    if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL ||
-        millis() - wifiBoot.started > WiFiBootConnect::TIMEOUT_MS) {
+    if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) {
         wifiBoot.active = false;
-        Serial.println("[WIFI] Boot fallito — apro AP setup");
+        Serial.println("[WIFI] Boot STA fallito (credenziali/rete) — AP setup");
         wifiStartSetupAp(cfg);
+        return;
+    }
+
+    if (millis() - wifiBoot.started > WiFiBootConnect::TIMEOUT_MS) {
+        wifiBoot.active = false;
+        Serial.println("[WIFI] Boot timeout — autoreconnect STA (niente AP)");
     }
 }
 
+/** Non riaprire l'AP in automatico: ruba il telefono e sembra un reset. */
+inline void wifiLinkWatchdog(ConfigManager& cfg) {
+    (void)cfg;
+}
+
 inline bool setupWiFi(ConfigManager& cfg) {
-    WiFi.persistent(false);
-    WiFi.disconnect(true, false);
-    delay(50);
+    WiFi.persistent(true);
+    WiFi.setAutoReconnect(true);
+    WiFi.setSleep(false);
     wifiJob.begin(&cfg);
+    wifiRestoreFromNvs(cfg);
 
     if (cfg.cfg.wifiSsid[0] == '\0') {
         wifiStartSetupAp(cfg);
+        Serial.println("[WIFI] Nessuna rete salvata — AP http://192.168.4.1/");
         return true;
     }
 
-    wifiBootStart(cfg);
+    String pass = SecureStore::loadWifiPassword();
+    wifiBeginSta(cfg, cfg.cfg.wifiSsid, pass.c_str());
+    wifiBoot.active  = true;
+    wifiBoot.started = millis();
+    Serial.printf("[WIFI] Boot STA → '%s' (senza AP)\n", cfg.cfg.wifiSsid);
     return true;
 }
 
@@ -388,20 +403,23 @@ inline void resetWifiAndRestart(ConfigManager& cfg) {
 }
 
 inline void wifiFillAccessStatus(const ConfigManager& cfg, JsonObject doc) {
-    const bool sta  = wifiHasStaIp();
+    const bool sta   = wifiHasStaIp();
     const bool setup = wifiInSetupMode(cfg);
+    const bool apOn  = wifiApRunning();
     String staIp = sta ? WiFi.localIP().toString() : String(cfg.cfg.lastStaIp);
 
     doc["connected"]   = sta;
     doc["setup_mode"]  = setup;
-    doc["ap_active"]   = wifiApRunning();
+    doc["ap_active"]   = apOn;
     doc["ssid"]        = sta ? WiFi.SSID() : cfg.cfg.wifiSsid;
     doc["sta_ip"]      = staIp;
     doc["last_sta_ip"] = cfg.cfg.lastStaIp;
     doc["saved_ssid"]  = cfg.cfg.wifiSsid;
     if (staIp.length() && sta)
         doc["web_url"] = String("http://") + staIp + "/";
-    if (wifiApRunning()) {
+    else if (!sta && cfg.cfg.lastStaIp[0])
+        doc["web_url"] = String("http://") + cfg.cfg.lastStaIp + "/";
+    if (apOn) {
         doc["ap_ip"]  = WiFi.softAPIP().toString();
         doc["ap_url"] = String("http://") + WiFi.softAPIP().toString() + "/";
     }

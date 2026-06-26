@@ -6,9 +6,8 @@
 
 /**
  * Sensitive data storage:
- *   - WiFi password, MQTT password → NVS namespace "sh0sec" (not in config.json)
- *   - Web login password           → SHA-256 hash in config.json (never stored plain)
- *   - WiFi SSID (display only)     → config.json
+ *   - WiFi SSID + password + last IP → NVS namespace "sh0sec" (sopravvive a uploadfs)
+ *   - WiFi SSID (copia) + last IP     → config.json
  *
  * Note: ESP32 NVS is isolated from the filesystem; this is the standard approach
  * on embedded devices without a secure element.
@@ -44,6 +43,36 @@ public:
         p.end();
     }
 
+    static void saveWifiSsid(const String& ssid) {
+        Preferences p;
+        p.begin("sh0sec", false);
+        p.putString("wifi_ssid", ssid);
+        p.end();
+    }
+
+    static void saveLastStaIp(const String& ip) {
+        Preferences p;
+        p.begin("sh0sec", false);
+        p.putString("last_sta_ip", ip);
+        p.end();
+    }
+
+    static String loadWifiSsid() {
+        Preferences p;
+        p.begin("sh0sec", true);
+        String s = p.getString("wifi_ssid", "");
+        p.end();
+        return s;
+    }
+
+    static String loadLastStaIp() {
+        Preferences p;
+        p.begin("sh0sec", true);
+        String s = p.getString("last_sta_ip", "");
+        p.end();
+        return s;
+    }
+
     static String loadWifiPassword() {
         Preferences p;
         p.begin("sh0sec", true);
@@ -71,6 +100,8 @@ public:
         Preferences p;
         p.begin("sh0sec", false);
         p.remove("wifi_pass");
+        p.remove("wifi_ssid");
+        p.remove("last_sta_ip");
         p.end();
         WiFi.disconnect(true, true);
     }

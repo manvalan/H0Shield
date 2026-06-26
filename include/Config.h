@@ -10,6 +10,9 @@
 // NOTE: GPIO 34–39 are INPUT-ONLY on ESP32. Digital MUX drive (relays,
 // signal lamps) requires hardware that routes outputs through a driver pin,
 // or a shield redesign. ADC sensor reads on SIG work as documented.
+inline bool muxCanDriveDigital() {
+    return MUX_PIN_SIG < 34 || MUX_PIN_SIG > 39;
+}
 #define MUX_CHANNELS 16
 
 // ── I2C (VL6180X – dedicated bus, optional, NOT through MUX) ────────

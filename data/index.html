@@ -5,144 +5,147 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ShieldH0</title>
 <style>
-:root{--bg:#09090b;--surface:#131316;--surface2:#1c1c22;--border:#2e2e38;--text:#fafafa;--muted:#8b8b98;--accent:#6366f1;--accent2:#818cf8;--ok:#22c55e;--danger:#ef4444;--r:14px;--rs:9px}
+:root{--bg:#0c0e14;--surface:#151820;--surface2:#1c2030;--border:#2a3044;--text:#eef1f8;--muted:#8892a8;--accent:#4f8cff;--accent-dim:rgba(79,140,255,.12);--ok:#3ecf8e;--warn:#f5b942;--danger:#f07178;--r:16px;--rs:10px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
-.header{position:sticky;top:0;z-index:40;background:rgba(9,9,11,.9);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:14px 16px 0}
-.header-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.brand h1{font-size:1.15rem;font-weight:700;letter-spacing:-.03em}
-.brand p{font-size:.72rem;color:var(--muted)}
-.pill{font-size:.7rem;padding:5px 11px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:6px}
-.pill::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--muted)}
-.pill.on::before{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.55;font-size:15px}
+.header{position:sticky;top:0;z-index:40;background:rgba(12,14,20,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:16px 16px 0}
+.header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.brand h1{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}
+.brand p{font-size:.8rem;color:var(--muted);margin-top:2px}
+.pill{font-size:.72rem;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.pill::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.pill.on::before{background:var(--ok)}
 .pill.off::before{background:var(--danger)}
-.tabs{display:flex;gap:2px;overflow-x:auto}
-.tab{flex:1;min-width:70px;padding:9px 6px;border:none;background:none;color:var(--muted);font-size:.78rem;font-weight:600;cursor:pointer;border-radius:var(--rs) var(--rs) 0 0}
-.tab.active{color:var(--text);background:var(--surface);box-shadow:inset 0 -2px 0 var(--accent)}
-.panel{display:none;padding:16px;max-width:680px;margin:0 auto 80px}
-.panel-dash{max-width:920px}
+.tabs{display:flex;gap:6px;padding-bottom:12px}
+.tab{flex:1;padding:11px 8px;border:1px solid transparent;background:var(--surface2);color:var(--muted);font-size:.85rem;font-weight:600;cursor:pointer;border-radius:var(--rs);transition:background .15s,color .15s,border-color .15s}
+.tab.active{color:var(--text);background:var(--accent-dim);border-color:rgba(79,140,255,.35);color:#b8d4ff}
+.panel{display:none;padding:16px;max-width:640px;margin:0 auto 88px}
 .panel.active{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px}
-.card-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
-.dash-summary{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.sum-pill{font-size:.72rem;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
-.sum-pill.warn{border-color:rgba(239,68,68,.4);color:#fca5a5;background:rgba(239,68,68,.08)}
+.subnav{display:flex;gap:6px;margin-bottom:16px}
+.subtab{flex:1;padding:9px;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:var(--rs);font-size:.8rem;font-weight:600;cursor:pointer}
+.subtab.active{background:var(--surface2);color:var(--text);border-color:var(--accent)}
+.subpanel{display:none}
+.subpanel.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px}
+.card-title{font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:14px}
+.card-hint{font-size:.78rem;color:var(--muted);margin:-8px 0 14px;line-height:1.45}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.section-head span:first-child{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
-.sec-badge{font-size:.65rem;padding:2px 8px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
-.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.rail-seg{height:10px;border-radius:4px;margin:8px 0 6px;background:linear-gradient(90deg,#27272a 0%,#27272a 100%);border:1px solid var(--border);position:relative;overflow:hidden}
-.rail-seg::before,.rail-seg::after{content:'';position:absolute;top:2px;bottom:2px;width:3px;background:#52525b;border-radius:1px}
-.rail-seg::before{left:8px}.rail-seg::after{right:8px}
-.rail-seg.occ{background:linear-gradient(90deg,rgba(239,68,68,.35),rgba(239,68,68,.15));border-color:rgba(239,68,68,.35)}
-.rail-seg.free{background:linear-gradient(90deg,rgba(34,197,94,.25),rgba(34,197,94,.08));border-color:rgba(34,197,94,.25)}
-.stat{background:linear-gradient(145deg,var(--surface),var(--surface2));border:1px solid var(--border);border-radius:var(--r);padding:14px}
-.stat-l{font-size:.65rem;color:var(--muted);margin-bottom:2px}
-.stat-v{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums}
+.section-head span:first-child{font-size:.85rem;font-weight:600;color:var(--text)}
+.sec-badge{font-size:.7rem;padding:3px 9px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.access-hero{background:linear-gradient(145deg,var(--surface2),var(--surface));border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:14px}
+.access-hero.warn{border-color:rgba(245,185,66,.35);background:rgba(245,185,66,.06)}
+.access-hero.ok{border-color:rgba(62,207,142,.3);background:rgba(62,207,142,.05)}
+.access-hero .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+.access-hero .url{font-size:1.35rem;font-weight:700;word-break:break-all;line-height:1.3}
+.access-hero .url a{color:inherit;text-decoration:none}
+.access-hero .url a:hover{text-decoration:underline}
+.access-hero .meta{font-size:.8rem;color:var(--muted);margin-top:10px;line-height:1.5}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip-pill{font-size:.78rem;padding:8px 12px;border-radius:var(--rs);background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.chip-pill strong{color:var(--text);font-weight:600}
+.live-section{margin-bottom:10px;border:1px solid var(--border);border-radius:var(--rs);overflow:hidden}
+.live-section summary{padding:12px 14px;cursor:pointer;font-size:.85rem;font-weight:600;background:var(--surface2);list-style:none}
+.live-section summary::-webkit-details-marker{display:none}
+.live-section[open] summary{border-bottom:1px solid var(--border)}
+.live-section .live-body{padding:12px 14px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.dash-summary{display:none}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px}
+.stat-l{font-size:.72rem;color:var(--muted);margin-bottom:2px}
+.stat-v{font-size:.95rem;font-weight:700;font-variant-numeric:tabular-nums}
+.dash-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.rail-seg{height:8px;border-radius:4px;margin:8px 0 6px;background:#252a38;border:1px solid var(--border)}
+.rail-seg.occ{background:rgba(240,113,120,.25);border-color:rgba(240,113,120,.35)}
+.rail-seg.free{background:rgba(62,207,142,.2);border-color:rgba(62,207,142,.3)}
 .tile{display:flex;justify-content:space-between;align-items:center;padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px}
-.chip{font-size:.65rem;font-weight:700;padding:3px 9px;border-radius:99px;text-transform:uppercase}
-.chip-ok{background:rgba(34,197,94,.15);color:#86efac}
-.chip-busy{background:rgba(239,68,68,.15);color:#fca5a5}
+.chip{font-size:.65rem;font-weight:700;padding:4px 10px;border-radius:99px;text-transform:uppercase}
+.chip-ok{background:rgba(62,207,142,.15);color:#8ce8b8}
+.chip-busy{background:rgba(240,113,120,.15);color:#f5a8ad}
 .chip-n{background:var(--border);color:var(--muted)}
-label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:5px;font-weight:500}
-input,select{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:.88rem}
+label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:6px;font-weight:500}
+input,select{width:100%;padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:.9rem}
 input:focus,select:focus{outline:none;border-color:var(--accent)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.field{margin-bottom:12px}
-.net-list{max-height:220px;overflow-y:auto;margin:10px 0}
-.net-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px;cursor:pointer;transition:border-color .15s}
-.net-item:hover,.net-item.sel{border-color:var(--accent);background:rgba(99,102,241,.08)}
-.net-item .ssid{font-weight:600;font-size:.88rem}
-.net-item .meta{font-size:.7rem;color:var(--muted)}
-.mux-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.mux-cell{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:8px 4px;text-align:center}
-.mux-num{font-size:.6rem;color:var(--muted);margin-bottom:4px}
-.mux-cell select{padding:5px 2px;font-size:.65rem}
-.board-table{width:100%;border-collapse:collapse;font-size:.78rem}
-.board-table th,.board-table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
-.board-table th{font-size:.65rem;text-transform:uppercase;color:var(--muted);font-weight:700}
-.board-table select,.board-table input{font-size:.78rem;padding:6px 8px}
-.i2c-slot{display:grid;grid-template-columns:52px 1fr 1fr 88px;gap:8px;align-items:center;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
+.field{margin-bottom:14px}
+.board-table{width:100%;border-collapse:collapse;font-size:.82rem}
+.board-table th,.board-table td{padding:10px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
+.board-table th{font-size:.72rem;color:var(--muted);font-weight:600}
+.board-table select,.board-table input{font-size:.82rem;padding:7px 9px}
+.i2c-slot{display:grid;grid-template-columns:48px 1fr 1fr 80px;gap:8px;align-items:center;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
 .i2c-slot .slot-label{font-weight:700;font-size:.82rem}
-.i2c-detect{font-size:.7rem;color:var(--muted)}
-.i2c-detect.ok{color:#86efac}
-.elem-section{margin-bottom:18px}
-.elem-section summary{cursor:pointer;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 0;list-style:none}
+.i2c-detect{font-size:.72rem;color:var(--muted)}
+.i2c-detect.ok{color:#8ce8b8}
+.elem-section{margin-bottom:12px;border:1px solid var(--border);border-radius:var(--rs);overflow:hidden}
+.elem-section summary{cursor:pointer;font-size:.85rem;font-weight:600;padding:13px 14px;background:var(--surface2);list-style:none}
 .elem-section summary::-webkit-details-marker{display:none}
-.elem-section[open] summary{color:var(--text);margin-bottom:10px}
-.dyn{display:grid;gap:8px;padding:11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px}
+.elem-section .elem-inner{padding:14px;border-top:1px solid var(--border)}
+.dyn{display:grid;gap:8px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
 .dyn.rb{grid-template-columns:1fr 56px 32px}
 .dyn.sw{grid-template-columns:1fr 58px 58px 58px 32px}
-.btn{padding:11px 16px;border:none;border-radius:var(--rs);font-size:.85rem;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn{padding:12px 16px;border:none;border-radius:var(--rs);font-size:.88rem;font-weight:600;cursor:pointer;transition:opacity .15s}
 .btn-p{background:var(--accent);color:#fff;width:100%}
 .btn-s{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
-.btn-o{background:transparent;border:1px dashed var(--border);color:var(--muted);width:100%;padding:9px;margin-top:4px}
-.btn-icon{width:32px;height:32px;border:1px solid var(--border);background:var(--surface);border-radius:var(--rs);cursor:pointer;color:var(--muted)}
-.save-bar{position:fixed;bottom:0;left:0;right:0;padding:14px 16px;background:rgba(9,9,11,.95);border-top:1px solid var(--border);backdrop-filter:blur(12px)}
-.save-bar .inner{max-width:680px;margin:0 auto}
-#toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);padding:10px 18px;border-radius:var(--r);font-size:.82rem;opacity:0;transition:opacity .25s;z-index:100;pointer-events:none}
+.btn-o{background:transparent;border:1px dashed var(--border);color:var(--muted);width:100%;padding:10px;margin-top:6px}
+.btn-icon{width:34px;height:34px;border:1px solid var(--border);background:var(--surface);border-radius:var(--rs);cursor:pointer;color:var(--muted)}
+.save-bar{position:fixed;bottom:0;left:0;right:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(12,14,20,.96);border-top:1px solid var(--border);backdrop-filter:blur(12px)}
+.save-bar .inner{max-width:640px;margin:0 auto}
+.save-bar .hint{font-size:.72rem;color:var(--muted);text-align:center;margin-top:6px}
+#toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);padding:11px 18px;border-radius:var(--rs);font-size:.85rem;opacity:0;transition:opacity .25s;z-index:100;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
 .btn.busy{opacity:.55;pointer-events:none}
 .wifi-hero{padding:16px;border-radius:var(--rs);margin-bottom:16px;border:1px solid var(--border);background:var(--surface2)}
-.wifi-hero.online{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.08)}
-.wifi-hero.setup{border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06)}
+.wifi-hero.online{border-color:rgba(62,207,142,.35);background:rgba(62,207,142,.06)}
+.wifi-hero.setup{border-color:rgba(245,185,66,.35);background:rgba(245,185,66,.06)}
 .wifi-hero-title{font-size:1rem;font-weight:700;margin-bottom:4px}
-.wifi-hero-sub{font-size:.78rem;color:var(--muted)}
+.wifi-hero-sub{font-size:.8rem;color:var(--muted);line-height:1.45}
 .wifi-ssid-row{display:flex;gap:8px;align-items:stretch}
 .wifi-ssid-row select{flex:1}
 .wifi-ssid-row .btn{flex-shrink:0;width:auto;padding:10px 14px;font-size:1rem;line-height:1}
-.wifi-result{margin-top:14px;padding:14px 16px;border-radius:var(--rs);font-size:.88rem;display:none;line-height:1.45}
+.wifi-result{margin-top:14px;padding:14px;border-radius:var(--rs);font-size:.85rem;display:none;line-height:1.45}
 .wifi-result.show{display:block}
-.wifi-result.wait{background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.35);color:#c7d2fe}
-.wifi-result.ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);color:#86efac}
-.wifi-result.err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:#fca5a5}
-.wifi-result .big{font-size:1rem;font-weight:700;margin-bottom:2px}
-.wifi-progress{height:4px;background:rgba(255,255,255,.15);border-radius:99px;margin-top:12px;overflow:hidden}
+.wifi-result.wait{background:var(--accent-dim);border:1px solid rgba(79,140,255,.3);color:#b8d4ff}
+.wifi-result.ok{background:rgba(62,207,142,.1);border:1px solid rgba(62,207,142,.3);color:#8ce8b8}
+.wifi-result.err{background:rgba(240,113,120,.1);border:1px solid rgba(240,113,120,.3);color:#f5a8ad}
+.wifi-result .big{font-size:.95rem;font-weight:700;margin-bottom:4px}
+.wifi-progress{height:4px;background:rgba(255,255,255,.1);border-radius:99px;margin-top:12px;overflow:hidden}
 .wifi-progress>i{display:block;height:100%;width:35%;background:var(--accent);border-radius:99px;animation:wifi-bar 1.1s ease-in-out infinite}
 @keyframes wifi-bar{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
-.wifi-ip-box{margin-top:12px;padding:12px 14px;border-radius:var(--rs);background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35)}
-.wifi-ip-box .url{font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums;word-break:break-all}
-.wifi-ip-box .hint{font-size:.72rem;color:var(--muted);margin-top:6px;line-height:1.4}
+.wifi-ip-box{margin-top:10px;padding:12px;border-radius:var(--rs);background:rgba(62,207,142,.08);border:1px solid rgba(62,207,142,.25)}
+.wifi-ip-box .url{font-size:1.05rem;font-weight:700;word-break:break-all}
+.wifi-ip-box .hint{font-size:.75rem;color:var(--muted);margin-top:6px}
 .wifi-progress-determined>i{width:0%;animation:none;transition:width .35s ease}
-.reboot-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}
+.reboot-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}
 .reboot-overlay.show{display:flex}
-.reboot-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:24px;max-width:360px;text-align:center}
+.reboot-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;max-width:360px;text-align:center}
 .reboot-box .big{font-size:1.05rem;font-weight:700;margin-bottom:8px}
-.reboot-box .sub{font-size:.82rem;color:var(--muted);line-height:1.45}
+.reboot-box .sub{font-size:.85rem;color:var(--muted);line-height:1.45}
 #login{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;padding:20px}
 #login.show{display:flex}
 .login-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;width:100%;max-width:340px}
-.empty{text-align:center;padding:20px;color:var(--muted);font-size:.82rem}
+.empty{text-align:center;padding:24px 12px;color:var(--muted);font-size:.85rem}
 .track-row{padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px}
 .track-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .track-id{font-weight:600;font-size:.85rem}
 .track-bar{height:6px;background:var(--border);border-radius:99px;overflow:hidden;position:relative}
 .track-fill{height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
-.track-th{position:absolute;top:-3px;width:2px;height:12px;background:#fbbf24;border-radius:1px}
-.tof-gauge{height:80px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);position:relative;margin:10px 0;overflow:hidden}
-.tof-fill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,var(--accent),var(--accent2));transition:height .3s}
-.tof-th-line{position:absolute;left:0;right:0;border-top:2px dashed #fbbf24;z-index:2}
-.tof-labels{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted)}
-.sig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-.sig-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center}
-.sig-card h4{font-size:.78rem;margin:6px 0 2px;font-weight:600}
-.sig-meta{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.lamp-off{fill:#27272a;stroke:#52525b;stroke-width:1}
-.lamp-r-on{fill:#ef4444;stroke:#fca5a5;stroke-width:1;filter:drop-shadow(0 0 5px rgba(239,68,68,.55))}
-.lamp-y-on{fill:#eab308;stroke:#fde047;stroke-width:1;filter:drop-shadow(0 0 5px rgba(234,179,8,.5))}
-.lamp-g-on{fill:#22c55e;stroke:#86efac;stroke-width:1;filter:drop-shadow(0 0 5px rgba(34,197,94,.5))}
+.track-th{position:absolute;top:-3px;width:2px;height:12px;background:var(--warn);border-radius:1px}
+.tof-gauge{height:72px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);position:relative;margin:10px 0;overflow:hidden}
+.tof-fill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,var(--accent),#7eb6ff);transition:height .3s}
+.tof-th-line{position:absolute;left:0;right:0;border-top:2px dashed var(--warn);z-index:2}
+.tof-labels{display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)}
+.sig-grid,.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.sig-card,.sw-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center}
+.sig-card h4,.sw-card h4{font-size:.78rem;margin:6px 0 2px;font-weight:600}
+.sig-meta,.sw-meta{font-size:.62rem;color:var(--muted)}
+.lamp-off{fill:#252a38;stroke:#3d4560;stroke-width:1}
+.lamp-r-on{fill:#f07178;stroke:#f5a8ad;stroke-width:1}
+.lamp-y-on{fill:#f5b942;stroke:#fde68a;stroke-width:1}
+.lamp-g-on{fill:#3ecf8e;stroke:#8ce8b8;stroke-width:1}
 .sig-test{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px}
 .sig-test button{font-size:.62rem;padding:4px 7px;border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:6px;cursor:pointer}
-.sig-test button:active{opacity:.7;border-color:var(--accent);color:var(--text)}
-.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
-.sw-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 8px;text-align:center}
-.sw-card h4{font-size:.78rem;margin:6px 0 2px;font-weight:600}
-.sw-meta{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .sw-busy{animation:sw-pulse .35s ease-in-out infinite alternate}
-@keyframes sw-pulse{from{opacity:1;filter:drop-shadow(0 0 5px #fbbf24)}to{opacity:.45}}
-@media(max-width:480px){.stats{grid-template-columns:repeat(2,1fr)}.dash-grid{grid-template-columns:1fr}.row2{grid-template-columns:1fr}.mux-grid{grid-template-columns:repeat(2,1fr)}}
-@media(min-width:481px) and (max-width:720px){.dash-grid{grid-template-columns:1fr}}
+@keyframes sw-pulse{from{opacity:1}to{opacity:.45}}
+@media(max-width:520px){.row2{grid-template-columns:1fr}.i2c-slot{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -153,7 +156,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <div class="field"><label>Utente</label><input id="login-user" value="admin"></div>
     <div class="field"><label>Password</label><input id="login-pass" type="password"></div>
     <button class="btn btn-p" onclick="doLogin()">Accedi</button>
-    <p style="font-size:.72rem;color:var(--muted);margin-top:12px;text-align:center">Primo accesso? Lascia password vuota e impostala in Rete.</p>
+    <p style="font-size:.78rem;color:var(--muted);margin-top:12px;text-align:center">Primo accesso? Lascia password vuota e impostala in Impostazioni → Rete.</p>
   </div>
 </div>
 
@@ -163,63 +166,64 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <span id="mqtt-pill" class="pill off">MQTT</span>
   </div>
   <nav class="tabs">
-    <button class="tab active" data-tab="dash">Dashboard</button>
-    <button class="tab" data-tab="board">Scheda</button>
-    <button class="tab" data-tab="elem">Elementi</button>
-    <button class="tab" data-tab="rete">Rete</button>
-    <button class="tab" data-tab="sys">Sistema</button>
+    <button class="tab active" data-tab="dash">Home</button>
+    <button class="tab" data-tab="config">Plastico</button>
+    <button class="tab" data-tab="settings">Impostazioni</button>
   </nav>
 </header>
 
-<!-- DASHBOARD -->
-<section id="p-dash" class="panel panel-dash active">
-  <div class="stats">
-    <div class="stat"><div class="stat-l">Uptime</div><div class="stat-v" id="d-up">—</div></div>
-    <div class="stat"><div class="stat-l">IP</div><div class="stat-v" id="d-ip">—</div></div>
-    <div class="stat"><div class="stat-l">WiFi</div><div class="stat-v" id="d-wifi">—</div></div>
-    <div class="stat"><div class="stat-l">Heap</div><div class="stat-v" id="d-heap">—</div></div>
+<!-- HOME -->
+<section id="p-dash" class="panel active">
+  <div id="access-hero" class="access-hero">
+    <div class="label">Apri il pannello</div>
+    <div class="url" id="access-url">Caricamento…</div>
+    <div class="meta" id="access-meta">Collegati alla stessa rete WiFi della scheda.</div>
+  </div>
+  <div class="chips">
+    <span class="chip-pill">WiFi <strong id="d-wifi">—</strong></span>
+    <span class="chip-pill">IP <strong id="d-ip">—</strong></span>
+    <span class="chip-pill">Uptime <strong id="d-up">—</strong></span>
+  </div>
+  <div id="dash-wifi-cta" style="display:none;margin-bottom:14px">
+    <button class="btn btn-p" type="button" onclick="openTab('rete')">Configura WiFi</button>
   </div>
   <div id="dash-summary" class="dash-summary"></div>
-  <div id="dash-wifi-cta" class="card" style="display:none;border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06)">
-    <div class="card-title">Configura WiFi</div>
-    <p style="font-size:.82rem;color:var(--muted);margin:0 0 12px">La scheda non è connessa al WiFi di casa. Configurala dal tab Rete.</p>
-    <button class="btn btn-p" type="button" onclick="openTab('rete')">Apri tab Rete →</button>
-  </div>
-  <div class="card">
-    <div class="section-head"><span>Binari &amp; occupazione</span><span id="cnt-bin" class="sec-badge">0</span></div>
-    <div id="d-sens" class="empty">Nessun dato</div>
-  </div>
-    <div class="dash-grid">
-    <div class="card">
-      <div class="section-head"><span>Segnali</span><span id="cnt-sig" class="sec-badge">0</span></div>
-      <div id="d-sig" class="empty">—</div>
-    </div>
-    <div class="card">
-      <div class="section-head"><span>Scambi</span><span id="cnt-sw" class="sec-badge">0</span></div>
-      <div id="d-sw" class="empty">—</div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="section-head"><span>Accessori</span><span id="cnt-acc" class="sec-badge">0</span></div>
-    <div id="d-acc" class="empty">—</div>
-  </div>
-  <div class="card">
-    <div class="section-head"><span>Scenari attivi</span><span id="cnt-scn" class="sec-badge">0</span></div>
-    <div id="d-scn" class="empty">—</div>
-  </div>
+  <details class="live-section" open>
+    <summary>Binari e sensori <span id="cnt-bin" class="sec-badge" style="float:right">0</span></summary>
+    <div class="live-body"><div id="d-sens" class="empty">Nessun sensore</div></div>
+  </details>
+  <details class="live-section">
+    <summary>Segnali <span id="cnt-sig" class="sec-badge" style="float:right">0</span></summary>
+    <div class="live-body"><div id="d-sig" class="empty">—</div></div>
+  </details>
+  <details class="live-section">
+    <summary>Scambi <span id="cnt-sw" class="sec-badge" style="float:right">0</span></summary>
+    <div class="live-body"><div id="d-sw" class="empty">—</div></div>
+  </details>
+  <details class="live-section">
+    <summary>Accessori <span id="cnt-acc" class="sec-badge" style="float:right">0</span></summary>
+    <div class="live-body"><div id="d-acc" class="empty">—</div></div>
+  </details>
+  <details class="live-section">
+    <summary>Scenari <span id="cnt-scn" class="sec-badge" style="float:right">0</span></summary>
+    <div class="live-body"><div id="d-scn" class="empty">—</div></div>
+  </details>
+  <div id="d-heap" style="display:none"></div>
 </section>
 
-<!-- SCHEDA PCB -->
-<section id="p-board" class="panel">
+<!-- PLASTICO -->
+<section id="p-config" class="panel">
+  <nav class="subnav">
+    <button type="button" class="subtab active" data-sub="board">Hardware</button>
+    <button type="button" class="subtab" data-sub="elem">Elementi Rocrail</button>
+  </nav>
+  <div id="p-board" class="subpanel active">
   <div class="card">
     <div class="section-head">
       <span>Slot I2C (U9–U16)</span>
       <button class="btn btn-s" type="button" onclick="scanI2c()" style="width:auto;padding:6px 12px;font-size:.75rem">Scansiona bus</button>
     </div>
-    <p style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
-      Modalità <strong>Auto</strong>: polling per identificare VL6180X (distanza) o display OLED.
-      Assegna manualmente ToF o collega uno slot a un display configurato in Elementi.
-    </p>
+    <p class="card-hint">Slot I2C della scheda (U9–U16). In <strong>Auto</strong> la scheda rileva sensore distanza o display.</p>
     <div id="i2c-slots"></div>
     <div class="row2" style="margin-top:10px">
       <div class="field"><label>Slot ToF globale</label>
@@ -229,11 +233,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
   </div>
   <div class="card">
-    <div class="card-title">Multiplexer CD74HC4067 — canali 0–15</div>
-    <p style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
-      Assegna ogni canale a sensore, semaforo, scambio, accessorio, relè o altro.
-      L'elemento va poi configurato nel tab <strong>Elementi</strong>.
-    </p>
+    <div class="card-title">Multiplexer — canali 0–15</div>
+    <p class="card-hint">Assegna ogni canale, poi definisci l’elemento nel tab Elementi Rocrail.</p>
     <div style="overflow-x:auto">
       <table class="board-table">
         <thead><tr><th>Ch</th><th>Ruolo</th><th>Elemento</th><th>Rilevato</th></tr></thead>
@@ -241,38 +242,40 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       </table>
     </div>
   </div>
-</section>
+  </div>
 
-<!-- ELEMENTI -->
-<section id="p-elem" class="panel">
-  <details class="elem-section" open>
-    <summary>Sensori &amp; soglie</summary>
+  <div id="p-elem" class="subpanel">
+  <details class="elem-section">
+    <summary>Sensori e soglie</summary>
+    <div class="elem-inner">
     <div class="card">
-      <div class="card-title">Soglia occupazione MUX (ADC 0–4095)</div>
+      <div class="card-title">Soglia occupazione MUX</div>
       <input id="sensor-th" type="range" min="100" max="4000" step="10" value="512" oninput="document.getElementById('th-val').textContent=this.value">
       <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="th-val">512</span></div>
     </div>
     <div class="card">
-      <div class="card-title">VL6180X ToF</div>
+      <div class="card-title">Sensore distanza ToF</div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:.85rem">
-        <input id="tof-en" type="checkbox" checked> Abilita rilevamento distanza
+        <input id="tof-en" type="checkbox" checked> Abilitato
       </label>
       <input id="tof-th" type="range" min="5" max="100" step="1" value="35" oninput="document.getElementById('tof-th-val').textContent=this.value">
       <div style="text-align:center;margin-top:6px;font-size:1.1rem;font-weight:700"><span id="tof-th-val">35</span> mm</div>
     </div>
     <div class="card">
-      <div class="card-title">Blocchi Rocrail ToF</div>
+      <div class="card-title">Blocchi Rocrail (ToF)</div>
       <div id="tof-rb-list"></div>
-      <button class="btn btn-o" onclick="addTofRb()">+ Blocco ToF</button>
+      <button class="btn btn-o" onclick="addTofRb()">+ Blocco</button>
     </div>
     <div class="card">
-      <div class="card-title">Sensori assorbimento Rocrail</div>
+      <div class="card-title">Sensori assorbimento</div>
       <div id="rb-list"></div>
-      <button class="btn btn-o" onclick="addRb()">+ Sensore blocco</button>
+      <button class="btn btn-o" onclick="addRb()">+ Sensore</button>
+    </div>
     </div>
   </details>
-  <details class="elem-section" open>
-    <summary>Segnali Rocrail</summary>
+  <details class="elem-section">
+    <summary>Segnali</summary>
+    <div class="elem-inner">
     <div class="card">
       <div class="row2" style="margin-bottom:12px">
         <div class="field"><label>Aspect MAIN al boot</label>
@@ -283,44 +286,60 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="sig-list"></div>
       <button class="btn btn-o" onclick="addSig()">+ Segnale</button>
     </div>
+    </div>
   </details>
   <details class="elem-section">
-    <summary>Scambi Rocrail</summary>
+    <summary>Scambi</summary>
+    <div class="elem-inner">
     <div class="card">
       <div id="sw-list"></div>
       <button class="btn btn-o" onclick="addSw()">+ Scambio</button>
     </div>
+    </div>
   </details>
   <details class="elem-section">
     <summary>Display OLED</summary>
+    <div class="elem-inner">
     <div class="card">
       <div id="disp-list"></div>
       <button class="btn btn-o" onclick="addDisplay()">+ Display</button>
     </div>
+    </div>
   </details>
   <details class="elem-section">
-    <summary>Accessori (relè)</summary>
+    <summary>Accessori</summary>
+    <div class="elem-inner">
     <div class="card">
       <div id="acc-list"></div>
       <button class="btn btn-o" onclick="addAcc()">+ Accessorio</button>
     </div>
+    </div>
   </details>
   <details class="elem-section">
-    <summary>Scenari automazione</summary>
+    <summary>Scenari</summary>
+    <div class="elem-inner">
     <div class="card">
       <div id="scn-list"></div>
       <button class="btn btn-o" onclick="addScn()">+ Scenario</button>
     </div>
+    </div>
   </details>
+  </div>
 </section>
 
-<!-- RETE -->
-<section id="p-rete" class="panel">
+<!-- IMPOSTAZIONI -->
+<section id="p-settings" class="panel">
+  <nav class="subnav">
+    <button type="button" class="subtab active" data-sub="rete">Rete</button>
+    <button type="button" class="subtab" data-sub="sys">MQTT e sistema</button>
+  </nav>
+  <div id="p-rete" class="subpanel active">
   <div class="card">
     <div id="wifi-hero" class="wifi-hero setup">
       <div class="wifi-hero-title">WiFi</div>
       <div class="wifi-hero-sub">Caricamento stato…</div>
     </div>
+    <div id="wifi-form">
     <div class="field">
       <label>Rete</label>
       <div class="wifi-ssid-row">
@@ -334,6 +353,11 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
     <button id="btn-wifi-connect" class="btn btn-p" onclick="connectWifi()">Connetti</button>
     <div id="wifi-result"></div>
+    </div>
+    <p id="wifi-saved-hint" style="font-size:.72rem;color:var(--muted);margin-top:12px;display:none">
+      Rete già configurata. Usa <strong>Cambia rete</strong> solo se vuoi collegarti a un'altra WiFi.
+      <button type="button" class="btn btn-o" style="margin-top:8px;width:auto;padding:6px 12px;font-size:.75rem" onclick="showWifiForm()">Cambia rete</button>
+    </p>
     <p id="wifi-setup-hint" style="font-size:.72rem;color:var(--muted);margin-top:12px;display:none">
       <strong>Primo accesso:</strong> connettiti al WiFi <code id="wifi-ap-name">ShieldH0-…</code> →
       <a href="http://192.168.4.1/" style="color:var(--accent)">http://192.168.4.1/</a>
@@ -348,37 +372,42 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     </div>
     <p style="font-size:.72rem;color:var(--muted)">Salvata come hash SHA-256, mai in chiaro nel file config.</p>
   </div>
-  <button class="btn btn-o" onclick="resetWifi()">Reset WiFi → modalità setup AP</button>
-</section>
+  <button class="btn btn-o" onclick="resetWifi()">Reset WiFi (torna in modalità setup)</button>
+  </div>
 
-<!-- SISTEMA -->
-<section id="p-sys" class="panel">
+  <div id="p-sys" class="subpanel">
   <div class="card">
-    <div class="card-title">Identità &amp; MQTT</div>
+    <div class="card-title">Nome e MQTT</div>
     <div class="field"><label>Nome scheda</label><input id="hostname"></div>
     <div class="row2">
-      <div class="field"><label>Broker MQTT</label><input id="broker" placeholder="IP o plastico.local"></div>
+      <div class="field"><label>Broker MQTT</label><input id="broker" placeholder="192.168.1.10"></div>
       <div class="field"><label>Porta</label><input id="port" type="number"></div>
     </div>
     <div class="row2">
       <div class="field"><label>Utente MQTT</label><input id="mqtt-user"></div>
-      <div class="field"><label>Password MQTT</label><input id="mqtt-pass" type="password" placeholder="Salvata cifrata in NVS"></div>
+      <div class="field"><label>Password MQTT</label><input id="mqtt-pass" type="password" placeholder="Opzionale"></div>
     </div>
-    <div class="card-title" style="margin-top:12px">Sistema informativo plastico (SIP)</div>
-    <p style="font-size:.72rem;color:var(--muted);margin:0 0 8px">Topic unico JSON: ogni display applica solo i messaggi che corrispondono a stazione e binario configurati. Vedi <code>docs/INFO_MQTT.md</code>.</p>
+    <p class="card-hint">Usa l’IP del broker, non un nome .local, per evitare blocchi al riavvio.</p>
+  </div>
+  <div class="card">
+    <div class="card-title">Display SIP (opzionale)</div>
     <div class="row2">
-      <div class="field"><label>Topic SIP</label><input id="info-topic" placeholder="railway/info"></div>
+      <div class="field"><label>Topic</label><input id="info-topic" placeholder="railway/info"></div>
       <div class="field" style="display:flex;align-items:flex-end;padding-bottom:6px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input id="info-enabled" type="checkbox"> Abilita sottoscrizione SIP
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem">
+          <input id="info-enabled" type="checkbox"> Abilita topic SIP
         </label>
       </div>
     </div>
   </div>
+  </div>
 </section>
 
 <div class="save-bar" id="save-bar" style="display:none">
-  <div class="inner"><button class="btn btn-p" id="save-btn" onclick="saveAll()">Salva configurazione e riavvia</button></div>
+  <div class="inner">
+    <button class="btn btn-p" id="save-btn" onclick="saveAll()">Salva e riavvia scheda</button>
+    <div class="hint" id="save-hint">Il pannello sarà offline per circa 30 secondi.</div>
+  </div>
 </div>
 <div id="toast"></div>
 <div id="reboot-overlay" class="reboot-overlay">
@@ -407,28 +436,141 @@ const MUX_BIND_ROLES=[
 ];
 const I2C_MODES=[{v:'auto',l:'Auto (polling)'},{v:'none',l:'Nessuno'},{v:'tof',l:'Sensore distanza'},{v:'display',l:'Display OLED'}];
 let cfg={}, selSsid='', authToken=localStorage.getItem('sh0tok')||'', boardStatus={}, wifiPollTimer=null;
+let mainTab='dash', settingsSub='rete';
 
 function authH(){return authToken?{'X-Auth-Token':authToken}:{};}
 function authHJson(){return{...authH(),'Content-Type':'application/json'};}
 
-async function checkAuth(){
-  try{const r=await fetch('/api/auth/check',{headers:authH()});return r.ok;}catch(e){return false;}
+function isHomeActive(){return document.getElementById('p-dash').classList.contains('active');}
+function isReteActive(){
+  const s=document.getElementById('p-settings');
+  const r=document.getElementById('p-rete');
+  return s&&s.classList.contains('active')&&r&&r.classList.contains('active');
 }
 
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active');
-  const panel=document.getElementById('p-'+t.dataset.tab);
+function updateSaveBar(){
+  const bar=document.getElementById('save-bar');
+  const hint=document.getElementById('save-hint');
+  const onConfig=document.getElementById('p-config').classList.contains('active');
+  const onSys=document.getElementById('p-settings').classList.contains('active')&&
+    document.getElementById('p-sys').classList.contains('active');
+  const show=onConfig||onSys;
+  bar.style.display=show?'block':'none';
+  document.body.style.paddingBottom=show?'96px':'0';
+  if(hint) hint.textContent=onSys
+    ?'Salva MQTT e plastico — offline ~30 s.'
+    :'Salva hardware e elementi — offline ~30 s.';
+}
+
+function showSubpanel(parentId, subId){
+  const parent=document.getElementById(parentId);
+  if(!parent) return;
+  parent.querySelectorAll('.subpanel').forEach(p=>p.classList.remove('active'));
+  const el=document.getElementById('p-'+subId);
+  if(el) el.classList.add('active');
+}
+
+function activateMainTab(tab){
+  mainTab=tab;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('#p-dash,#p-config,#p-settings').forEach(p=>p.classList.remove('active'));
+  const btn=document.querySelector('.tab[data-tab="'+tab+'"]');
+  if(btn) btn.classList.add('active');
+  const panel=document.getElementById('p-'+tab);
   if(panel) panel.classList.add('active');
-  const show=t.dataset.tab!=='dash';
-  document.getElementById('save-bar').style.display=show?'block':'none';
-  document.body.style.paddingBottom=show?'80px':'0';
-  if(t.dataset.tab==='rete') initReteTab();
+  if(tab==='config') showSubpanel('p-config','board');
+  if(tab==='settings'){
+    showSubpanel('p-settings', settingsSub);
+    if(settingsSub==='rete') initReteTab();
+  }
+  updateSaveBar();
+}
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>activateMainTab(t.dataset.tab));
+
+document.querySelectorAll('#p-config .subtab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#p-config .subtab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  showSubpanel('p-config', b.dataset.sub);
+  updateSaveBar();
+});
+
+document.querySelectorAll('#p-settings .subtab').forEach(b=>b.onclick=()=>{
+  settingsSub=b.dataset.sub;
+  document.querySelectorAll('#p-settings .subtab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  showSubpanel('p-settings', settingsSub);
+  if(settingsSub==='rete') initReteTab();
+  updateSaveBar();
 });
 
 function openTab(name){
-  const btn=document.querySelector('.tab[data-tab="'+name+'"]');
-  if(btn) btn.click();
+  if(name==='rete'||name==='sys'){
+    settingsSub=name;
+    activateMainTab('settings');
+    document.querySelectorAll('#p-settings .subtab').forEach(x=>{
+      x.classList.toggle('active', x.dataset.sub===name);
+    });
+    showSubpanel('p-settings', name);
+    if(name==='rete') initReteTab();
+    updateSaveBar();
+    return;
+  }
+  if(name==='board'||name==='elem'){
+    activateMainTab('config');
+    document.querySelectorAll('#p-config .subtab').forEach(x=>{
+      x.classList.toggle('active', x.dataset.sub===name);
+    });
+    showSubpanel('p-config', name);
+    updateSaveBar();
+  }
+}
+
+function updateAccessHero(w){
+  const hero=document.getElementById('access-hero');
+  const urlEl=document.getElementById('access-url');
+  const meta=document.getElementById('access-meta');
+  const cta=document.getElementById('dash-wifi-cta');
+  if(!hero||!urlEl) return;
+  const ip=w&&(w.sta_ip||w.web_url)?(w.web_url||('http://'+(w.sta_ip||w.last_sta_ip||'')+'/')):'';
+  if(w&&w.connected&&ip){
+    hero.className='access-hero ok';
+    urlEl.innerHTML='<a href="'+ip+'">'+ip+'</a>';
+    meta.textContent=(w.ssid||w.saved_ssid||'WiFi')+' · segnale '+(w.rssi!=null?w.rssi+' dBm':'—');
+    if(cta) cta.style.display='none';
+  }else if(w&&w.setup_mode){
+    hero.className='access-hero warn';
+    urlEl.innerHTML='<a href="http://192.168.4.1/">http://192.168.4.1/</a>';
+    meta.textContent='Primo avvio: connettiti al WiFi ShieldH0 e configura la rete di casa.';
+    if(cta) cta.style.display=isHomeActive()?'block':'none';
+  }else{
+    hero.className='access-hero warn';
+    const lip=w&&w.last_sta_ip?('http://'+w.last_sta_ip+'/'):'';
+    urlEl.innerHTML=lip?('<a href="'+lip+'">'+lip+'</a>'):'In connessione…';
+    meta.textContent=w&&w.saved_ssid
+      ?('Rete salvata: '+w.saved_ssid+' — attendi o apri l\'ultimo IP dal WiFi di casa')
+      :'Attendi qualche secondo e ricarica.';
+    if(cta) cta.style.display='none';
+  }
+}
+
+function showWifiForm(){
+  const f=document.getElementById('wifi-form');
+  const h=document.getElementById('wifi-saved-hint');
+  if(f) f.style.display='block';
+  if(h) h.style.display='none';
+  scanWifi(true);
+}
+
+function setWifiFormVisible(showForm){
+  const f=document.getElementById('wifi-form');
+  const h=document.getElementById('wifi-saved-hint');
+  if(f) f.style.display=showForm?'block':'none';
+  if(h) h.style.display=showForm?'none':'block';
+}
+
+async function checkAuth(){
+  try{const r=await fetch('/api/auth/check',{headers:authH()});return r.ok;}catch(e){return false;}
 }
 
 async function doLogin(){
@@ -487,7 +629,7 @@ function populate(c){
   buildSig(c.signals||[]);
   buildSw(c.turnouts||[]);
   loadWifiStatus();
-  if(document.getElementById('p-rete').classList.contains('active')) initReteTab();
+  if(isReteActive()) initReteTab();
 }
 
 function deriveMuxBindings(c){
@@ -710,10 +852,11 @@ async function loadWifiStatus(){
   try{
     const r=await fetch('/api/wifi/status'); const w=await r.json();
     updateWifiSubtitle(w);
-    document.getElementById('d-wifi').textContent=w.connected?(w.sta_ip||w.rssi+' dBm'):'AP setup';
-    document.getElementById('d-ip').textContent=w.sta_ip||w.last_sta_ip||w.ap_ip||'—';
+    updateAccessHero(w);
+    document.getElementById('d-wifi').textContent=w.connected?(w.ssid||'OK'):'Non connesso';
+    document.getElementById('d-ip').textContent=w.sta_ip||w.last_sta_ip||'—';
     const cta=document.getElementById('dash-wifi-cta');
-    if(cta) cta.style.display=(!w.connected && document.getElementById('p-dash').classList.contains('active'))?'block':'none';
+    if(cta) cta.style.display=(!w.connected && w.setup_mode && isHomeActive())?'block':'none';
     const hero=document.getElementById('wifi-hero');
     if(hero){
       const webUrl=w.web_url||(w.sta_ip?'http://'+w.sta_ip+'/':'');
@@ -723,29 +866,32 @@ async function loadWifiStatus(){
         const sec=Math.round((w.job_elapsed_ms||0)/1000);
         hero.innerHTML=`<div class="wifi-hero-title">Connessione in corso…</div>
           <div class="wifi-hero-sub">${w.job_message||''} · ${sec} s</div>`;
+      }else if(w.setup_mode){
+        hero.className='wifi-hero setup';
+        hero.innerHTML=`<div class="wifi-hero-title">Primo avvio — configura WiFi</div>
+          <div class="wifi-hero-sub">Connettiti all'AP <strong>ShieldH0-${cfg.hostname||'ShieldH0'}</strong> se non sei già collegato.<br>
+          AP: <a href="${apUrl||'http://192.168.4.1/'}" style="color:var(--accent)">${apUrl||'http://192.168.4.1/'}</a></div>`;
       }else if(w.connected && webUrl){
         hero.className='wifi-hero online';
         hero.innerHTML=`<div class="wifi-hero-title">✓ ${w.ssid||w.saved_ssid||'WiFi'}</div>
           <div class="wifi-ip-box"><div class="url"><a href="${webUrl}" style="color:inherit">${webUrl}</a></div>
-          <div class="hint">Apri questo indirizzo dal WiFi di casa (non usare .local).</div></div>
-          <div class="wifi-hero-sub" style="margin-top:8px">Segnale ${w.rssi} dBm · configurazione salvata</div>`;
-      }else if(w.setup_mode || w.ap_active){
-        hero.className='wifi-hero setup';
-        hero.innerHTML=`<div class="wifi-hero-title">Modalità configurazione</div>
-          <div class="wifi-hero-sub">Connettiti all'AP <strong>ShieldH0-${cfg.hostname||'ShieldH0'}</strong> poi configura qui sotto.<br>
-          AP: <a href="${apUrl||'http://192.168.4.1/'}" style="color:var(--accent)">${apUrl||'http://192.168.4.1/'}</a>
-          ${w.last_sta_ip?`<br>Ultimo IP noto: <strong>${w.last_sta_ip}</strong> (riprova dal WiFi di casa)` : ''}</div>`;
+          <div class="hint">Apri questo indirizzo dal WiFi di casa. Su Mac <code>.local</code> spesso non funziona: usa l'IP.</div></div>
+          <div class="wifi-hero-sub" style="margin-top:8px">Segnale ${w.rssi} dBm${w.mdns_url?` · opzionale: <a href="${w.mdns_url}" style="color:var(--muted)">${w.mdns_url}</a>`:''}</div>`;
       }else{
-        hero.className='wifi-hero setup';
-        hero.innerHTML=`<div class="wifi-hero-title">Non connesso</div>
-          <div class="wifi-hero-sub">${w.saved_ssid?`Rete salvata: ${w.saved_ssid}. ` : ''}Riconnessione in corso…
-          ${w.last_sta_ip?`<br>Ultimo IP: <strong>${w.last_sta_ip}</strong>` : ''}</div>`;
+        hero.className='wifi-hero online';
+        const lip=w.last_sta_ip||'';
+        const tryUrl=lip?('http://'+lip+'/'):'';
+        hero.innerHTML=`<div class="wifi-hero-title">${w.saved_ssid||'WiFi'} — riconnessione</div>
+          <div class="wifi-hero-sub">${w.saved_ssid?`Rete salvata: <strong>${w.saved_ssid}</strong>. ` : ''}La scheda si riconnette da sola.
+          ${tryUrl?`<div class="wifi-ip-box" style="margin-top:10px"><div class="url"><a href="${tryUrl}" style="color:inherit">${tryUrl}</a></div>
+          <div class="hint">Apri questo indirizzo dal WiFi di casa mentre la scheda torna online.</div></div>` : ''}</div>`;
       }
     }
     const hint=document.getElementById('wifi-setup-hint');
     const apName=document.getElementById('wifi-ap-name');
-    if(hint) hint.style.display=(w.setup_mode||w.ap_active)?'block':'none';
+    if(hint) hint.style.display=w.setup_mode?'block':'none';
     if(apName) apName.textContent='ShieldH0-'+(cfg.hostname||'ShieldH0');
+    setWifiFormVisible(w.setup_mode || w.job_busy);
     return w;
   }catch(e){return null;}
 }
@@ -830,9 +976,10 @@ function updateWifiJobUi(w){
   }else if(w.job_phase==='success'){
     const u=w.job_web_url||(w.job_ip?'http://'+w.job_ip+'/':'');
     const msg=u
-      ? `Connesso. Passa al WiFi di casa e apri ${u} (l'AP ShieldH0 si spegne).`
-      : `IP ${w.job_ip||'—'} — passa al WiFi di casa per continuare.`;
-    setWifiResult('ok','Rete salvata',false,msg);
+      ? `Rete memorizzata. Passa al WiFi di casa e apri ${u} — non dovrai reinserire la password.`
+      : `IP ${w.job_ip||'—'} — rete salvata in memoria permanente.`;
+    setWifiResult('ok','Rete salvata per sempre',false,msg);
+    setWifiFormVisible(false);
     fetch('/api/wifi/dismiss',{method:'POST'}).catch(()=>{});
     setWifiUiBusy(false);
     stopWifiPoll();
@@ -967,11 +1114,19 @@ async function resetWifi(){
   await waitForDevice(35000);
 }
 
-function addRb(d={}){const el=document.createElement('div');el.className='dyn rb';
-  el.innerHTML=`<input class="rb-id" placeholder="bk1" value="${d.rocrail_id||''}"><input class="rb-ch" type="number" min="0" max="15" value="${d.mux_ch||0}"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
+function addRb(d={}){
+  const el=document.createElement('div'); el.className='card dyn-rb';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID blocco Rocrail</label><input class="rb-id" placeholder="bk1" value="${d.rocrail_id||''}"></div>
+      <div class="field"><label>Canale MUX</label><input class="rb-ch" type="number" min="0" max="15" value="${d.mux_ch||0}"></div>
+    </div>
+    <div class="sig-test rb-test" style="margin-top:4px"></div>
+    <button class="btn btn-o" style="margin-top:8px" type="button" onclick="this.parentElement.remove()">Rimuovi</button>`;
+  el.querySelector('.rb-test').innerHTML=`<button type="button" onclick="testSensorForm(this.closest('.dyn-rb'))">Leggi sensore</button>`;
   document.getElementById('rb-list').appendChild(el);}
 function buildRb(a){document.getElementById('rb-list').innerHTML=''; if(a.length) a.forEach(x=>addRb(x)); else addRb();}
-function getRb(){return[...document.querySelectorAll('#rb-list .dyn')].map(r=>({rocrail_id:r.querySelector('.rb-id').value.trim(),mux_ch:+r.querySelector('.rb-ch').value})).filter(x=>x.rocrail_id);}
+function getRb(){return[...document.querySelectorAll('#rb-list .dyn-rb')].map(r=>({rocrail_id:r.querySelector('.rb-id').value.trim(),mux_ch:+r.querySelector('.rb-ch').value})).filter(x=>x.rocrail_id);}
 
 function addTofRb(d={}){const el=document.createElement('div');el.className='dyn rb';
   el.innerHTML=`<input class="tb-id" placeholder="bk2" value="${d.rocrail_id||''}"><input class="tb-th" type="number" min="0" max="100" value="${d.threshold_mm||0}" title="0=global"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
@@ -979,17 +1134,45 @@ function addTofRb(d={}){const el=document.createElement('div');el.className='dyn
 function buildTofRb(a){document.getElementById('tof-rb-list').innerHTML=''; if(a.length) a.forEach(x=>addTofRb(x)); else addTofRb();}
 function getTofRb(){return[...document.querySelectorAll('#tof-rb-list .dyn')].map(r=>({rocrail_id:r.querySelector('.tb-id').value.trim(),threshold_mm:+r.querySelector('.tb-th').value})).filter(x=>x.rocrail_id);}
 
-function addSig(d={}){const el=document.createElement('div');el.className='dyn sw';
-  el.innerHTML=`<input class="sg-id" placeholder="sg1" value="${d.id||''}"><select class="sg-t"><option value="0" ${!d.type?'selected':''}>MAIN</option><option value="1" ${d.type==1?'selected':''}>SHUNT</option></select><input class="sg-r" type="number" min="0" max="15" value="${d.chR||0}" title="R"><input class="sg-g" type="number" min="0" max="15" value="${d.chG||1}" title="G"><input class="sg-v" type="number" min="0" max="15" value="${d.chV||2}" title="V"><label style="display:flex;align-items:center;gap:4px;font-size:.7rem"><input class="sg-pca" type="checkbox" ${d.use_pca?'checked':''}>PCA</label><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
+function addSig(d={}){
+  const t=d.type||0;
+  const el=document.createElement('div'); el.className='card dyn-sig';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID Rocrail</label><input class="sg-id" placeholder="sg1" value="${d.id||''}"></div>
+      <div class="field"><label>Tipo</label><select class="sg-t"><option value="0" ${t===0?'selected':''}>MAIN</option><option value="1" ${t===1?'selected':''}>SHUNT</option></select></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Ch R / A</label><input class="sg-r" type="number" min="0" max="15" value="${d.chR||0}"></div>
+      <div class="field"><label>Ch G / B</label><input class="sg-g" type="number" min="0" max="15" value="${d.chG||1}"></div>
+      <div class="field"><label>Ch V / C</label><input class="sg-v" type="number" min="0" max="15" value="${d.chV||2}"></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:6px;margin-top:18px"><input class="sg-pca" type="checkbox" ${d.use_pca?'checked':''}> PCA9685</label></div>
+    </div>
+    <div class="sig-test sg-test-row" style="margin-top:8px"></div>
+    <button class="btn btn-o" style="margin-top:8px" type="button" onclick="this.parentElement.remove()">Rimuovi</button>`;
+  el.querySelector('.sg-t').onchange=()=>renderSigTestButtons(el);
+  renderSigTestButtons(el);
   document.getElementById('sig-list').appendChild(el);}
 function buildSig(a){document.getElementById('sig-list').innerHTML='';a.forEach(s=>addSig(s));}
-function getSig(){return[...document.querySelectorAll('#sig-list .dyn')].map(r=>({id:r.querySelector('.sg-id').value.trim(),type:+r.querySelector('.sg-t').value,chR:+r.querySelector('.sg-r').value,chG:+r.querySelector('.sg-g').value,chV:+r.querySelector('.sg-v').value,...(r.querySelector('.sg-pca').checked?{use_pca:true}:{})})).filter(x=>x.id);}
+function getSig(){return[...document.querySelectorAll('#sig-list .dyn-sig')].map(r=>({id:r.querySelector('.sg-id').value.trim(),type:+r.querySelector('.sg-t').value,chR:+r.querySelector('.sg-r').value,chG:+r.querySelector('.sg-g').value,chV:+r.querySelector('.sg-v').value,...(r.querySelector('.sg-pca').checked?{use_pca:true}:{})})).filter(x=>x.id);}
 
-function addSw(d={}){const el=document.createElement('div');el.className='dyn sw';
-  el.innerHTML=`<input class="sw-id" placeholder="sw1" value="${d.id||''}"><input class="sw-s" type="number" min="0" max="15" value="${d.chS||0}"><input class="sw-d" type="number" min="0" max="15" value="${d.chD||1}"><input class="sw-p" type="number" min="50" max="2000" value="${d.pulse||300}"><button class="btn-icon" onclick="this.parentElement.remove()">×</button>`;
+function addSw(d={}){
+  const el=document.createElement('div'); el.className='card dyn-sw';
+  el.innerHTML=`
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field"><label>ID Rocrail</label><input class="sw-id" placeholder="sw1" value="${d.id||''}"></div>
+      <div class="field"><label>Impulso (ms)</label><input class="sw-p" type="number" min="50" max="2000" value="${d.pulse||300}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Ch raddrizzato</label><input class="sw-s" type="number" min="0" max="15" value="${d.chS||0}"></div>
+      <div class="field"><label>Ch deviato</label><input class="sw-d" type="number" min="0" max="15" value="${d.chD||1}"></div>
+    </div>
+    <div class="sig-test sw-test-row" style="margin-top:8px"></div>
+    <button class="btn btn-o" style="margin-top:8px" type="button" onclick="this.parentElement.remove()">Rimuovi</button>`;
+  renderSwTestButtons(el);
   document.getElementById('sw-list').appendChild(el);}
 function buildSw(a){document.getElementById('sw-list').innerHTML='';a.forEach(s=>addSw(s));}
-function getSw(){return[...document.querySelectorAll('#sw-list .dyn')].map(r=>({id:r.querySelector('.sw-id').value.trim(),chS:+r.querySelector('.sw-s').value,chD:+r.querySelector('.sw-d').value,pulse:+r.querySelector('.sw-p').value})).filter(x=>x.id);}
+function getSw(){return[...document.querySelectorAll('#sw-list .dyn-sw')].map(r=>({id:r.querySelector('.sw-id').value.trim(),chS:+r.querySelector('.sw-s').value,chD:+r.querySelector('.sw-d').value,pulse:+r.querySelector('.sw-p').value})).filter(x=>x.id);}
 
 function addDispRow(el,d={}){
   const r=document.createElement('div'); r.className='dyn dp-row';
@@ -1026,6 +1209,7 @@ function addDisplay(d={}){
       </div>
       <div class="field"><label>Destinazione</label><input class="dp-dest" placeholder="Milano Centrale" value="${d.destination||''}"></div>
       <div class="field"><label>Stato</label><input class="dp-status" placeholder="libero" value="${d.status||'libero'}"></div>
+      <p class="hint" style="font-size:.72rem;color:var(--muted);margin:8px 0 0">In produzione il binario si aggiorna dal topic MQTT SIP (<code>railway/info</code>) filtrando <code>station_id</code> e numero binario.</p>
     </div>
     <div class="dp-timetable">
       <div class="row2">
@@ -1036,9 +1220,11 @@ function addDisplay(d={}){
       <div class="dp-rows"></div>
       <button class="btn btn-o" type="button" onclick="addDispRow(this.closest('.dyn-disp'))">+ Riga</button>
     </div>
+    <div class="sig-test dp-test" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     <button class="btn btn-o" style="margin-top:10px" onclick="this.parentElement.remove()">Rimuovi display</button>`;
-  el.querySelector('.dp-type').onchange=()=>toggleDispType(el);
+  el.querySelector('.dp-type').onchange=()=>{toggleDispType(el);renderDispTestButtons(el);};
   toggleDispType(el);
+  renderDispTestButtons(el);
   (d.rows||[{},{},{}]).forEach(r=>addDispRow(el,r));
   document.getElementById('disp-list').appendChild(el);
 }
@@ -1155,9 +1341,11 @@ function addAcc(d={}){
       </div>
       <div class="field"><label>Periodo lampeggio (ms)</label><input class="ac-pulse-pl" type="number" min="100" max="2000" value="${d.pulse_ms||500}"></div>
     </div>
+    <div class="sig-test acc-test" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     <button class="btn btn-o" style="margin-top:10px" onclick="this.parentElement.remove()">Rimuovi</button>`;
-  el.querySelector('.ac-profile').onchange=()=>toggleAccProfile(el);
+  el.querySelector('.ac-profile').onchange=()=>{toggleAccProfile(el);renderAccTestButtons(el);};
   toggleAccProfile(el);
+  renderAccTestButtons(el);
   document.getElementById('acc-list').appendChild(el);
 }
 function buildAcc(a){document.getElementById('acc-list').innerHTML=''; if(a.length) a.forEach(x=>addAcc(x));}
@@ -1213,11 +1401,12 @@ async function pollStatus(){
     document.getElementById('mqtt-pill').textContent=s.mqtt?'MQTT online':'MQTT off';
     document.getElementById('mqtt-pill').className='pill '+(s.mqtt?'on':'off');
     document.getElementById('d-up').textContent=fmtUp(s.uptime_s);
-    document.getElementById('d-ip').textContent=s.sta_ip||s.ip||s.last_sta_ip||s.ap_ip||'—';
-    document.getElementById('d-wifi').textContent=s.wifi_connected?(s.sta_ip||s.wifi_ssid||'OK'):'AP';
-    updateWifiSubtitle({connected:s.wifi_connected,sta_ip:s.sta_ip||s.ip,last_sta_ip:s.last_sta_ip,ap_ip:s.ap_ip,web_url:s.web_url});
+    document.getElementById('d-ip').textContent=s.sta_ip||s.ip||s.last_sta_ip||'—';
+    document.getElementById('d-wifi').textContent=s.wifi_connected?(s.wifi_ssid||'OK'):'Non connesso';
+    updateWifiSubtitle({connected:s.wifi_connected,sta_ip:s.sta_ip||s.ip,last_sta_ip:s.last_sta_ip,ap_ip:s.ap_ip,web_url:s.web_url,ssid:s.wifi_ssid});
+    updateAccessHero({connected:s.wifi_connected,sta_ip:s.sta_ip||s.ip,last_sta_ip:s.last_sta_ip,web_url:s.web_url,ssid:s.wifi_ssid,saved_ssid:s.wifi_ssid,setup_mode:s.setup_mode,ap_active:s.ap_mode,rssi:s.rssi});
     const cta=document.getElementById('dash-wifi-cta');
-    if(cta) cta.style.display=(!s.wifi_connected && document.getElementById('p-dash').classList.contains('active'))?'block':'none';
+    if(cta) cta.style.display=(!s.wifi_connected && s.setup_mode && isHomeActive())?'block':'none';
     document.getElementById('d-heap').textContent=s.free_heap?Math.round(s.free_heap/1024)+' KB':'—';
     boardStatus=s;
     updateMuxLive();
@@ -1236,24 +1425,12 @@ function updateDashSummary(sensors,tof,signals,turnouts,accessories,scenarios){
   const sigN=signals?Object.keys(signals).length:0;
   const swN=turnouts?Object.keys(turnouts).length:0;
   const accN=accessories?Object.keys(accessories).length:0;
-  const accOn=accessories?Object.values(accessories).filter(a=>a.active).length:0;
   const scnN=scenarios?Object.keys(scenarios).length:0;
-  const scnOn=scenarios?Object.values(scenarios).filter(s=>s.active).length:0;
-  const swBusy=turnouts?Object.values(turnouts).filter(t=>t.busy).length:0;
   document.getElementById('cnt-bin').textContent=tracks;
   document.getElementById('cnt-sig').textContent=sigN;
   document.getElementById('cnt-sw').textContent=swN;
   document.getElementById('cnt-acc').textContent=accN;
   document.getElementById('cnt-scn').textContent=scnN;
-  const el=document.getElementById('dash-summary');
-  if(!tracks&&!sigN&&!swN&&!accN&&!scnN){el.innerHTML='';return}
-  el.innerHTML=[
-    tracks?`<span class="sum-pill ${occ?'warn':''}">${occ}/${tracks} binari occupati</span>`:'',
-    sigN?`<span class="sum-pill">${sigN} segnali attivi</span>`:'',
-    swN?`<span class="sum-pill">${swN} scambi${swBusy?' · '+swBusy+' in movimento':''}</span>`:'',
-    accN?`<span class="sum-pill ${accOn?'warn':''}">${accOn}/${accN} accessori ON</span>`:'',
-    scnN?`<span class="sum-pill ${scnOn?'warn':''}">${scnOn} scenari attivi</span>`:''
-  ].filter(Boolean).join('');
 }
 function renderScenarios(id,scenarios,accessories,displays){
   const el=document.getElementById(id); const e=scenarios?Object.entries(scenarios):[];
@@ -1264,9 +1441,144 @@ function renderScenarios(id,scenarios,accessories,displays){
     return`<div class="track-row"><div class="track-head"><span class="track-id">${sid}</span><span class="chip ${on?'chip-busy':'chip-ok'}">${on?'ATTIVO':'in attesa'}</span></div><div style="font-size:.75rem;color:var(--muted)">Trigger: ${trig}${sc.triggered?' · occupato':''}</div><div class="rail-seg ${sc.triggered?'occ':'free'}"></div></div>`;
   }).join('');
 }
+function readSigCard(el){
+  return{id:el.querySelector('.sg-id').value.trim(),type:+el.querySelector('.sg-t').value,
+    chR:+el.querySelector('.sg-r').value||0,chG:+el.querySelector('.sg-g').value||1,chV:+el.querySelector('.sg-v').value||2,
+    ...(el.querySelector('.sg-pca').checked?{use_pca:true}:{})};
+}
+function renderSigTestButtons(el){
+  const wrap=el.querySelector('.sg-test-row');
+  if(!wrap) return;
+  const main=+el.querySelector('.sg-t').value===0;
+  const btns=main
+    ?[['red','R'],['yellow','Y'],['green','V']]
+    :[['stop','Stop'],['go','Via'],['oblique','Obliq']];
+  wrap.innerHTML=btns.map(([c,l])=>`<button type="button" onclick="testSigForm(this.closest('.dyn-sig'),'${c}')">${l}</button>`).join('');
+}
+async function testSigForm(el,cmd){
+  const sig=readSigCard(el);
+  if(!sig.id){toast('Inserisci ID segnale');return;}
+  await testApi({type:'signal',...sig,cmd});
+}
+function readSwCard(el){
+  return{id:el.querySelector('.sw-id').value.trim(),chS:+el.querySelector('.sw-s').value||0,
+    chD:+el.querySelector('.sw-d').value||1,pulse:+el.querySelector('.sw-p').value||300};
+}
+function renderSwTestButtons(el){
+  const wrap=el.querySelector('.sw-test-row');
+  if(!wrap) return;
+  wrap.innerHTML=`<button type="button" onclick="testSwForm(this.closest('.dyn-sw'),'straight')">→ Raddrizza</button><button type="button" onclick="testSwForm(this.closest('.dyn-sw'),'turnout')">↗ Devia</button>`;
+}
+async function testSwForm(el,cmd){
+  const sw=readSwCard(el);
+  if(!sw.id){toast('Inserisci ID scambio');return;}
+  await testApi({type:'turnout',...sw,cmd});
+}
+async function testSensorForm(el){
+  const mux_ch=+el.querySelector('.rb-ch').value;
+  const th=+document.getElementById('sensor-th').value||512;
+  await testApi({type:'sensor',mux_ch,threshold:th});
+}
 function accProfileLabel(p){
   const m={generic:'Generico',light:'Luci',level_xing:'PL',bell:'Campana',gate:'Sbarra'};
   return m[p]||p;
+}
+function readAccCard(el){
+  const profile=el.querySelector('.ac-profile').value;
+  const base={id:el.querySelector('.ac-id').value.trim(),profile};
+  if(profile==='level_xing') return{...base,
+    mux_ch_lights:+el.querySelector('.ac-ch-l').value||0,
+    mux_ch_bar:+el.querySelector('.ac-ch-b').value||0,
+    pulse_ms:+el.querySelector('.ac-pulse-pl').value||500};
+  return{...base,mux_ch:+el.querySelector('.ac-ch').value||0,pulse_ms:+el.querySelector('.ac-pulse').value||300};
+}
+function renderAccTestButtons(el){
+  const wrap=el.querySelector('.acc-test');
+  if(!wrap) return;
+  const p=el.querySelector('.ac-profile').value;
+  let html='';
+  if(p==='level_xing')
+    html=`<button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'activate')">Chiudi PL</button><button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'deactivate')">Apri PL</button>`;
+  else if(p==='bell')
+    html=`<button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'ring')">Suona</button><button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'off')">Stop</button>`;
+  else
+    html=`<button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'on')">ON</button><button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'off')">OFF</button><button type="button" onclick="testAccForm(this.closest('.dyn-acc'),'toggle')">Toggle</button>`;
+  wrap.innerHTML=html;
+}
+async function testAccForm(el,cmd){
+  const acc=readAccCard(el);
+  if(!acc.id){toast('Inserisci ID accessorio');return;}
+  await testApi({type:'accessory',...acc,cmd});
+}
+function readDispCard(el){
+  const type=el.querySelector('.dp-type').value;
+  const slot=+el.querySelector('.dp-slot').value;
+  const base={id:el.querySelector('.dp-id').value.trim(),type,i2c_addr:+el.querySelector('.dp-addr').value||60};
+  if(slot<8) base.i2c_slot=slot;
+  if(type==='platform'){
+    const stidEl=el.querySelector('.dp-platform .dp-stid')||el.querySelector('.dp-stid');
+    return{...base,
+      platform_num:+el.querySelector('.dp-pnum').value||1,
+      station_id:stidEl?stidEl.value.trim():'',
+      station_name:el.querySelector('.dp-stname').value.trim(),
+      destination:el.querySelector('.dp-dest').value,
+      departure_time:el.querySelector('.dp-time').value,
+      status:el.querySelector('.dp-status').value||'libero'};
+  }
+  const o={...base,station_name:el.querySelector('.dp-station').value,
+    rows:[...el.querySelectorAll('.dp-row')].map(r=>({
+      time:r.querySelector('.dr-time').value,destination:r.querySelector('.dr-dest').value,
+      platform:r.querySelector('.dr-bin').value,status:r.querySelector('.dr-st').value
+    })).filter(x=>x.time||x.destination)};
+  const sid=el.querySelector('.dp-timetable .dp-stid')||el.querySelector('.dp-stid');
+  if(sid&&sid.value.trim()) o.station_id=sid.value.trim();
+  return o;
+}
+function renderDispTestButtons(el){
+  const wrap=el.querySelector('.dp-test');
+  if(!wrap) return;
+  const t=el.querySelector('.dp-type').value;
+  const lbl=t==='timetable'?'Simula tabellone MQTT':'Simula binario MQTT';
+  wrap.innerHTML=`<button type="button" onclick="testDisplayForm(this.closest('.dyn-disp'))">${lbl}</button>`;
+}
+async function testDisplayForm(el){
+  const display=readDispCard(el);
+  if(!display.id){toast('Inserisci ID display');return;}
+  const body={type:'display_info',display};
+  if(display.type==='platform'){
+    body.station_id=display.station_id||'';
+    body.platform=String(display.platform_num||1);
+    body.destination=display.destination||'Test destinazione';
+    body.departure_time=display.departure_time||'12:00';
+    body.status=display.status||'in arrivo';
+    if(display.station_name) body.station_name=display.station_name;
+  }else{
+    body.timetable={
+      type:'timetable',
+      station_id:display.station_id||'',
+      station_name:display.station_name||'Stazione H0',
+      rows:display.rows.length?display.rows:[
+        {time:'14:30',destination:'Milano',platform:'1',status:'in orario'},
+        {time:'15:05',destination:'Roma',platform:'2',status:'ritardo'}
+      ]
+    };
+  }
+  await testApi(body);
+}
+async function testApi(body){
+  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify(body)});
+  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return false;}
+  let j={};
+  try{j=await r.json();}catch(e){}
+  if(r.ok){
+    let msg='Test OK';
+    if(j.raw!=null) msg=`ADC ${j.raw} · soglia ${j.threshold} · ${j.occupied?'occupato':'libero'}`;
+    toast(msg);
+    pollStatus();
+    return true;
+  }
+  toast(j.error||'Test fallito');
+  return false;
 }
 function renderAccessories(id,accessories){
   const el=document.getElementById(id); const e=accessories?Object.entries(accessories):[];
@@ -1282,10 +1594,7 @@ function renderAccessories(id,accessories){
   }).join('')+'</div>';
 }
 async function testAcc(id,cmd){
-  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'accessory',id,cmd})});
-  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
-  if(r.ok){toast('Accessorio '+id+' → '+cmd);pollStatus();}
-  else toast('Test fallito');
+  await testApi({type:'accessory',id,cmd});
 }
 function svgTurnout(pos,busy){
   const st=pos==='straight', dv=pos==='turnout';
@@ -1304,10 +1613,7 @@ function renderTurnouts(id,turnouts){
   }).join('')+'</div>';
 }
 async function testTurnout(id,cmd){
-  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'turnout',id,cmd})});
-  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
-  if(r.ok){toast('Scambio '+id+' → '+cmd);pollStatus();}
-  else toast('Test fallito');
+  await testApi({type:'turnout',id,cmd});
 }
 function lampCls(on,color){return on?'lamp-'+color+'-on':'lamp-off'}
 function svgMain(l){return`<svg viewBox="0 0 52 80" width="52" height="68"><rect x="24" y="22" width="4" height="54" fill="#3f3f46" rx="1"/><circle cx="26" cy="12" r="9" class="${lampCls(l.r,'r')}"/><circle cx="26" cy="30" r="9" class="${lampCls(l.g,'y')}"/><circle cx="26" cy="48" r="9" class="${lampCls(l.v,'g')}"/></svg>`}
@@ -1324,10 +1630,7 @@ function renderSignals(id,signals){
   }).join('')+'</div>';
 }
 async function testSignal(id,cmd){
-  const r=await fetch('/api/test',{method:'POST',headers:authHJson(),body:JSON.stringify({type:'signal',id,cmd})});
-  if(r.status===401){toast('Accedi per test');document.getElementById('login').classList.add('show');return}
-  if(r.ok){toast('Segnale '+id+' → '+cmd);pollStatus();}
-  else toast('Test fallito');
+  await testApi({type:'signal',id,cmd});
 }
 function renderSensors(id,muxSensors,tof){
   const el=document.getElementById(id); let html='';

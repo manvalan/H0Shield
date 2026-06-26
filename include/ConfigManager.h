@@ -4,6 +4,7 @@
 #include <LittleFS.h>
 #include "Config.h"
 #include "I2cBus.h"
+#include "SecureStore.h"
 
 // ── Rocrail signal config entry ──────────────────────────────────────
 struct SignalConfig {
@@ -157,326 +158,73 @@ public:
         return load();
     }
 
-    bool load() {
-        if (!LittleFS.exists(CONFIG_PATH)) {
-            Serial.println("[CFG] No config found – using defaults");
-            return save();   // persist defaults
-        }
-        File f = LittleFS.open(CONFIG_PATH, "r");
-        if (!f) return false;
-
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, f);
-        f.close();
-        if (err) {
-            Serial.printf("[CFG] JSON parse error: %s\n", err.c_str());
-            return false;
-        }
-
-        strlcpy(cfg.hostname,   doc["hostname"]   | cfg.hostname,   sizeof(cfg.hostname));
-        strlcpy(cfg.wifiSsid,   doc["wifi_ssid"]  | cfg.wifiSsid,   sizeof(cfg.wifiSsid));
-        strlcpy(cfg.lastStaIp,  doc["last_sta_ip"] | cfg.lastStaIp, sizeof(cfg.lastStaIp));
-        strlcpy(cfg.webUser,    doc["web_user"]   | cfg.webUser,    sizeof(cfg.webUser));
-        strlcpy(cfg.webPassHash,doc["web_pass_hash"] | cfg.webPassHash, sizeof(cfg.webPassHash));
-        strlcpy(cfg.mqttBroker, doc["mqtt_broker"] | cfg.mqttBroker, sizeof(cfg.mqttBroker));
-        cfg.mqttPort = doc["mqtt_port"] | cfg.mqttPort;
-        cfg.sensorThreshold = doc["sensor_threshold"] | cfg.sensorThreshold;
-        cfg.tofEnabled      = doc["tof_enabled"]      | cfg.tofEnabled;
-        cfg.tofThresholdMm  = doc["tof_threshold_mm"] | cfg.tofThresholdMm;
-        strlcpy(cfg.bootAspectMain,  doc["boot_aspect_main"]  | cfg.bootAspectMain,
-                sizeof(cfg.bootAspectMain));
-        strlcpy(cfg.bootAspectShunt, doc["boot_aspect_shunt"] | cfg.bootAspectShunt,
-                sizeof(cfg.bootAspectShunt));
-        cfg.tca9548Addr = doc["tca9548_addr"] | cfg.tca9548Addr;
-        cfg.tofI2cSlot  = doc["tof_i2c_slot"] | cfg.tofI2cSlot;
-        strlcpy(cfg.mqttUser,   doc["mqtt_user"]  | cfg.mqttUser,   sizeof(cfg.mqttUser));
-        cfg.mqttPass[0] = '\0';   // never from JSON – loaded via SecureStore
-        strlcpy(cfg.infoMqttTopic, doc["info_mqtt_topic"] | cfg.infoMqttTopic,
-                sizeof(cfg.infoMqttTopic));
-        cfg.infoMqttEnabled = doc["info_mqtt_enabled"] | cfg.infoMqttEnabled;
-
-        for (uint8_t s = 0; s < I2C_SLOTS; s++) {
-            I2cSlotConfig def = {};
-            JsonArray i2Slots = doc["i2c_slots"].as<JsonArray>();
-            if (s < i2Slots.size()) {
-                JsonObject sl = i2Slots[s];
-                def.mode = I2cBus::parseMode(sl["mode"] | "auto");
-                strlcpy(def.elementId, sl["element_id"] | "", sizeof(def.elementId));
-            }
-            cfg.i2cSlots[s] = def;
-        }
-
-        JsonArray arr = doc["pin_map"].as<JsonArray>();
-        for (uint8_t i = 0; i < MUX_CHANNELS && i < arr.size(); i++) {
-            cfg.pinMap[i] = static_cast<ChannelRole>(arr[i].as<uint8_t>());
-        }
-
-        // ── Signals ────────────────────────────────────────────────
-        cfg.numSignals = 0;
-        for (JsonObject sg : doc["signals"].as<JsonArray>()) {
-            if (cfg.numSignals >= BoardConfig::MAX_SIGNALS) break;
-            SignalConfig& s = cfg.signals[cfg.numSignals++];
-            strlcpy(s.id, sg["id"] | "", sizeof(s.id));
-            s.type = sg["type"] | 0;
-            s.chR  = sg["chR"]  | 0;
-            s.chG  = sg["chG"]  | 1;
-            s.chV  = sg["chV"]  | 2;
-            s.usePca = sg["use_pca"] | false;
-        }
-
-        // ── Turnouts ───────────────────────────────────────────────
-        cfg.numTurnouts = 0;
-        for (JsonObject sw : doc["turnouts"].as<JsonArray>()) {
-            if (cfg.numTurnouts >= BoardConfig::MAX_TURNOUTS) break;
-            TurnoutConfig& t = cfg.turnouts[cfg.numTurnouts++];
-            strlcpy(t.id, sw["id"] | "", sizeof(t.id));
-            t.chS   = sw["chS"]   | 0;
-            t.chD   = sw["chD"]   | 1;
-            t.pulse = sw["pulse"] | 300;
-        }
-
-        // ── Sensors Rocrail ────────────────────────────────────────
-        cfg.numSensorsRb = 0;
-        for (JsonObject rb : doc["sensors_rb"].as<JsonArray>()) {
-            if (cfg.numSensorsRb >= BoardConfig::MAX_SENSORS_RB) break;
-            SensorRbConfig& sr = cfg.sensorsRb[cfg.numSensorsRb++];
-            strlcpy(sr.rocrailId, rb["rocrail_id"] | "", sizeof(sr.rocrailId));
-            sr.muxCh = rb["mux_ch"] | 0;
-        }
-
-        cfg.numTofBlocks = 0;
-        for (JsonObject tb : doc["tof_blocks"].as<JsonArray>()) {
-            if (cfg.numTofBlocks >= BoardConfig::MAX_TOF_BLOCKS) break;
-            ToFBlockConfig& t = cfg.tofBlocks[cfg.numTofBlocks++];
-            strlcpy(t.rocrailId, tb["rocrail_id"] | "", sizeof(t.rocrailId));
-            t.thresholdMm = tb["threshold_mm"] | 0;
-        }
-
-        cfg.numDisplays = 0;
-        for (JsonObject dp : doc["displays"].as<JsonArray>()) {
-            if (cfg.numDisplays >= BoardConfig::MAX_DISPLAYS) break;
-            DisplayConfig& d = cfg.displays[cfg.numDisplays++];
-            strlcpy(d.id, dp["id"] | "", sizeof(d.id));
-            const char* typeStr = dp["type"] | "platform";
-            d.type = (strcmp(typeStr, "timetable") == 0)
-                ? DisplayType::TIMETABLE : DisplayType::PLATFORM;
-            d.i2cSlot = dp["i2c_slot"].isNull()
-                ? 255 : static_cast<uint8_t>(dp["i2c_slot"].as<uint8_t>());
-            d.i2cAddr = static_cast<uint8_t>(dp["i2c_addr"] | 0x3C);
-            d.platformNum = dp["platform_num"] | 1;
-            strlcpy(d.stationId, dp["station_id"] | "", sizeof(d.stationId));
-            strlcpy(d.stationName, dp["station_name"] | "Stazione H0", sizeof(d.stationName));
-            strlcpy(d.destination, dp["destination"] | "", sizeof(d.destination));
-            strlcpy(d.departureTime, dp["departure_time"] | "", sizeof(d.departureTime));
-            strlcpy(d.status, dp["status"] | "libero", sizeof(d.status));
-            d.numRows = 0;
-            for (JsonObject row : dp["rows"].as<JsonArray>()) {
-                if (d.numRows >= DisplayConfig::MAX_ROWS) break;
-                TimetableRowConfig& r = d.rows[d.numRows++];
-                strlcpy(r.timeStr, row["time"] | "", sizeof(r.timeStr));
-                const char* dest = row["destination"] | row["dest"] | "";
-                strlcpy(r.destination, dest, sizeof(r.destination));
-                const char* bin = row["platform"] | row["bin"] | "";
-                strlcpy(r.platformBin, bin, sizeof(r.platformBin));
-                strlcpy(r.status, row["status"] | "", sizeof(r.status));
-            }
-        }
-
-        cfg.numAccessories = 0;
-        for (JsonObject ac : doc["accessories"].as<JsonArray>()) {
-            if (cfg.numAccessories >= BoardConfig::MAX_ACCESSORIES) break;
-            AccessoryConfig& a = cfg.accessories[cfg.numAccessories++];
-            strlcpy(a.id, ac["id"] | "", sizeof(a.id));
-            a.profile = _parseProfile(ac["profile"] | "generic");
-            a.muxCh = ac["mux_ch"] | ac["mux_ch_lights"] | 0;
-            a.muxChBar = ac["mux_ch_bar"] | 0;
-            a.pulseMs = ac["pulse_ms"] | 300;
-        }
-
-        cfg.numScenarios = 0;
-        for (JsonObject sc : doc["scenarios"].as<JsonArray>()) {
-            if (cfg.numScenarios >= BoardConfig::MAX_SCENARIOS) break;
-            ScenarioConfig& s = cfg.scenarios[cfg.numScenarios++];
-            strlcpy(s.id, sc["id"] | "", sizeof(s.id));
-            s.enabled = sc["enabled"] | true;
-            s.muxCh = sc["mux_ch"].isNull() ? 255 : static_cast<uint8_t>(sc["mux_ch"].as<uint8_t>());
-            s.tofTrigger = sc["tof_trigger"] | false;
-            strlcpy(s.rocrailId, sc["rocrail_id"] | "", sizeof(s.rocrailId));
-            strlcpy(s.accessoryPl, sc["accessory_pl"] | "", sizeof(s.accessoryPl));
-            strlcpy(s.accessoryLight, sc["accessory_light"] | "", sizeof(s.accessoryLight));
-            strlcpy(s.accessoryBell, sc["accessory_bell"] | "", sizeof(s.accessoryBell));
-            strlcpy(s.displayId, sc["display_id"] | "", sizeof(s.displayId));
-            strlcpy(s.statusOcc, sc["status_occupied"] | "in arrivo", sizeof(s.statusOcc));
-            strlcpy(s.statusFree, sc["status_free"] | "libero", sizeof(s.statusFree));
-            strlcpy(s.destOcc, sc["dest_occupied"] | "", sizeof(s.destOcc));
-            strlcpy(s.destFree, sc["dest_free"] | "", sizeof(s.destFree));
-        }
-
-        Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u, tof_blocks: %u, displays: %u, accessories: %u, scenarios: %u\n",
-                      cfg.hostname, cfg.mqttBroker,
-                      cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb, cfg.numTofBlocks,
-                      cfg.numDisplays, cfg.numAccessories, cfg.numScenarios);
-        return true;
-    }
-
-    bool save() {
-        JsonDocument doc;
-        doc["hostname"]    = cfg.hostname;
-        doc["wifi_ssid"]   = cfg.wifiSsid;
-        if (cfg.lastStaIp[0]) doc["last_sta_ip"] = cfg.lastStaIp;
-        doc["web_user"]    = cfg.webUser;
-        doc["web_pass_hash"]= cfg.webPassHash;
-        doc["mqtt_broker"] = cfg.mqttBroker;
-        doc["mqtt_port"]   = cfg.mqttPort;
-        doc["mqtt_user"]   = cfg.mqttUser;
-        doc["info_mqtt_topic"]   = cfg.infoMqttTopic;
-        doc["info_mqtt_enabled"] = cfg.infoMqttEnabled;
-        doc["sensor_threshold"] = cfg.sensorThreshold;
-        doc["tof_enabled"]      = cfg.tofEnabled;
-        doc["tof_threshold_mm"] = cfg.tofThresholdMm;
-        doc["boot_aspect_main"]  = cfg.bootAspectMain;
-        doc["boot_aspect_shunt"] = cfg.bootAspectShunt;
-        doc["tca9548_addr"]      = cfg.tca9548Addr;
-        doc["tof_i2c_slot"]      = cfg.tofI2cSlot;
-
-        JsonArray i2Arr = doc["i2c_slots"].to<JsonArray>();
-        for (uint8_t s = 0; s < I2C_SLOTS; s++) {
-            JsonObject sl = i2Arr.add<JsonObject>();
-            sl["slot"]       = s;
-            sl["mode"]       = I2cBus::modeName(cfg.i2cSlots[s].mode);
-            if (cfg.i2cSlots[s].elementId[0])
-                sl["element_id"] = cfg.i2cSlots[s].elementId;
-        }
-
-        JsonArray arr = doc["pin_map"].to<JsonArray>();
-        for (uint8_t i = 0; i < MUX_CHANNELS; i++) {
-            arr.add(static_cast<uint8_t>(cfg.pinMap[i]));
-        }
-
-        JsonArray sgArr = doc["signals"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numSignals; i++) {
-            JsonObject o = sgArr.add<JsonObject>();
-            o["id"]   = cfg.signals[i].id;
-            o["type"] = cfg.signals[i].type;
-            o["chR"]  = cfg.signals[i].chR;
-            o["chG"]  = cfg.signals[i].chG;
-            o["chV"]  = cfg.signals[i].chV;
-            if (cfg.signals[i].usePca) o["use_pca"] = true;
-        }
-
-        JsonArray swArr = doc["turnouts"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numTurnouts; i++) {
-            JsonObject o = swArr.add<JsonObject>();
-            o["id"]    = cfg.turnouts[i].id;
-            o["chS"]   = cfg.turnouts[i].chS;
-            o["chD"]   = cfg.turnouts[i].chD;
-            o["pulse"] = cfg.turnouts[i].pulse;
-        }
-
-        JsonArray rbArr = doc["sensors_rb"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numSensorsRb; i++) {
-            JsonObject o = rbArr.add<JsonObject>();
-            o["rocrail_id"] = cfg.sensorsRb[i].rocrailId;
-            o["mux_ch"]     = cfg.sensorsRb[i].muxCh;
-        }
-
-        JsonArray tbArr = doc["tof_blocks"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numTofBlocks; i++) {
-            JsonObject o = tbArr.add<JsonObject>();
-            o["rocrail_id"]   = cfg.tofBlocks[i].rocrailId;
-            o["threshold_mm"] = cfg.tofBlocks[i].thresholdMm;
-        }
-
-        JsonArray dpArr = doc["displays"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numDisplays; i++) {
-            const DisplayConfig& d = cfg.displays[i];
-            JsonObject o = dpArr.add<JsonObject>();
-            o["id"]            = d.id;
-            o["type"]          = (d.type == DisplayType::TIMETABLE) ? "timetable" : "platform";
-            if (d.i2cSlot < I2C_SLOTS) o["i2c_slot"] = d.i2cSlot;
-            o["i2c_addr"]      = d.i2cAddr;
-            o["platform_num"]  = d.platformNum;
-            if (d.stationId[0]) o["station_id"] = d.stationId;
-            o["station_name"]  = d.stationName;
-            o["destination"]   = d.destination;
-            o["departure_time"]= d.departureTime;
-            o["status"]        = d.status;
-            JsonArray rows = o["rows"].to<JsonArray>();
-            for (uint8_t r = 0; r < d.numRows; r++) {
-                JsonObject ro = rows.add<JsonObject>();
-                ro["time"]        = d.rows[r].timeStr;
-                ro["destination"] = d.rows[r].destination;
-                ro["platform"]    = d.rows[r].platformBin;
-                ro["status"]      = d.rows[r].status;
-            }
-        }
-
-        JsonArray acArr = doc["accessories"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numAccessories; i++) {
-            const AccessoryConfig& a = cfg.accessories[i];
-            JsonObject o = acArr.add<JsonObject>();
-            o["id"]       = a.id;
-            o["profile"]  = _profileName(a.profile);
-            if (a.profile == AccessoryProfile::LEVEL_XING) {
-                o["mux_ch_lights"] = a.muxCh;
-                o["mux_ch_bar"]    = a.muxChBar;
-            } else {
-                o["mux_ch"] = a.muxCh;
-            }
-            o["pulse_ms"] = a.pulseMs;
-        }
-
-        JsonArray scArr = doc["scenarios"].to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.numScenarios; i++) {
-            const ScenarioConfig& s = cfg.scenarios[i];
-            JsonObject o = scArr.add<JsonObject>();
-            o["id"]              = s.id;
-            o["enabled"]         = s.enabled;
-            if (s.muxCh != 255) o["mux_ch"] = s.muxCh;
-            o["tof_trigger"]     = s.tofTrigger;
-            if (s.rocrailId[0]) o["rocrail_id"] = s.rocrailId;
-            if (s.accessoryPl[0])    o["accessory_pl"]    = s.accessoryPl;
-            if (s.accessoryLight[0]) o["accessory_light"] = s.accessoryLight;
-            if (s.accessoryBell[0])  o["accessory_bell"]  = s.accessoryBell;
-            if (s.displayId[0])      o["display_id"]      = s.displayId;
-            o["status_occupied"] = s.statusOcc;
-            o["status_free"]     = s.statusFree;
-            if (s.destOcc[0])  o["dest_occupied"] = s.destOcc;
-            if (s.destFree[0]) o["dest_free"]     = s.destFree;
-        }
-
-        File f = LittleFS.open(CONFIG_PATH, "w");
-        if (!f) return false;
-        serializeJson(doc, f);
-        f.close();
-        Serial.println("[CFG] Config saved");
-        return true;
-    }
+    bool load();
+    bool save();
 
     // Convenience: build MQTT topic strings
     String topic(const char* suffix) const {
         return String("railway/") + cfg.hostname + "/" + suffix;
     }
 
-    static AccessoryProfile parseProfile(const char* s) {
-        if (strcmp(s, "light") == 0)       return AccessoryProfile::LIGHT;
-        if (strcmp(s, "level_xing") == 0)  return AccessoryProfile::LEVEL_XING;
-        if (strcmp(s, "bell") == 0)        return AccessoryProfile::BELL;
-        if (strcmp(s, "gate") == 0)        return AccessoryProfile::GATE;
-        return AccessoryProfile::GENERIC;
+    /** NVS è la fonte di verità per WiFi (sopravvive a uploadfs). */
+    static void _syncWifiFromNvs(BoardConfig& c) {
+        const String ssid = SecureStore::loadWifiSsid();
+        if (ssid.length())
+            strlcpy(c.wifiSsid, ssid.c_str(), sizeof(c.wifiSsid));
+        const String lip = SecureStore::loadLastStaIp();
+        if (lip.length())
+            strlcpy(c.lastStaIp, lip.c_str(), sizeof(c.lastStaIp));
     }
 
-    static const char* profileName(AccessoryProfile p) {
-        switch (p) {
-            case AccessoryProfile::LIGHT:      return "light";
-            case AccessoryProfile::LEVEL_XING: return "level_xing";
-            case AccessoryProfile::BELL:       return "bell";
-            case AccessoryProfile::GATE:       return "gate";
-            default:                           return "generic";
-        }
-    }
-
-private:
-    static AccessoryProfile _parseProfile(const char* s) { return parseProfile(s); }
-    static const char* _profileName(AccessoryProfile p) { return profileName(p); }
+    static AccessoryProfile parseProfile(const char* s);
+    static const char* profileName(AccessoryProfile p);
 };
+
+#include "ConfigJson.h"
+
+inline AccessoryProfile ConfigManager::parseProfile(const char* s) {
+    return ConfigJson::parseProfile(s);
+}
+
+inline const char* ConfigManager::profileName(AccessoryProfile p) {
+    return ConfigJson::profileName(p);
+}
+
+inline bool ConfigManager::load() {
+    if (!LittleFS.exists(CONFIG_PATH)) {
+        Serial.println("[CFG] No config found – using defaults");
+        return save();
+    }
+    File f = LittleFS.open(CONFIG_PATH, "r");
+    if (!f) return false;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+    if (err) {
+        Serial.printf("[CFG] JSON parse error: %s\n", err.c_str());
+        return false;
+    }
+
+    ConfigJson::readFile(cfg, doc.as<JsonObject>());
+    _syncWifiFromNvs(cfg);
+
+    Serial.printf("[CFG] Loaded – hostname: %s, broker: %s, signals: %u, turnouts: %u, sensors_rb: %u, tof_blocks: %u, displays: %u, accessories: %u, scenarios: %u\n",
+                  cfg.hostname, cfg.mqttBroker,
+                  cfg.numSignals, cfg.numTurnouts, cfg.numSensorsRb, cfg.numTofBlocks,
+                  cfg.numDisplays, cfg.numAccessories, cfg.numScenarios);
+    return true;
+}
+
+inline bool ConfigManager::save() {
+    _syncWifiFromNvs(cfg);
+    JsonDocument doc;
+    ConfigJson::write(cfg, doc.to<JsonObject>(), false);
+
+    File f = LittleFS.open(CONFIG_PATH, "w");
+    if (!f) return false;
+    serializeJson(doc, f);
+    f.close();
+    Serial.println("[CFG] Config saved");
+    return true;
+}

@@ -41,6 +41,7 @@ public:
         hasMux  = false;
 
         Wire.begin(I2C_SDA, I2C_SCL);
+        Wire.setTimeout(50);
 
         for (uint8_t a = 0x70; a <= 0x77; a++) {
             Wire.beginTransmission(a);
@@ -82,15 +83,6 @@ public:
                 d.present = true;
                 d.addr    = addr;
                 d.type    = _classify(addr);
-                return d;
-            }
-        }
-
-        for (uint8_t addr = 1; addr < 127; addr++) {
-            if (_probeAddr(addr)) {
-                d.present = true;
-                d.addr    = addr;
-                d.type    = I2cDetectedType::DET_UNKNOWN;
                 return d;
             }
         }

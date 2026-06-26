@@ -1,6 +1,5 @@
 {
   "hostname": "ShieldH0",
-  "wifi_ssid": "",
   "web_user": "admin",
   "web_pass_hash": "",
   "mqtt_broker": "",

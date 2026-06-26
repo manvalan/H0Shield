@@ -40,6 +40,7 @@ public:
     using IChannel::IChannel;
 
     void setState(bool on, MuxDriver& mux) {
+        if (!muxCanDriveDigital()) return;
         state = on;
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, OUTPUT);
@@ -47,6 +48,7 @@ public:
     }
 
     void update(MuxDriver& mux) override {
+        if (!muxCanDriveDigital()) return;
         // Relays are write-only; refresh output to handle MUX contention recovery
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, OUTPUT);
@@ -78,6 +80,7 @@ public:
 
 private:
     void _writePin(uint8_t c, bool val, MuxDriver& mux) {
+        if (!muxCanDriveDigital()) return;
         mux.selectChannel(c);
         pinMode(MUX_PIN_SIG, OUTPUT);
         mux.writeDigital(val);
@@ -150,7 +153,7 @@ public:
     using IChannel::IChannel;
 
     void trigger(MuxDriver& mux, uint32_t pulseMs = 200) {
-        if (_active) return;
+        if (_active || !muxCanDriveDigital()) return;
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, OUTPUT);
         mux.writeDigital(true);
@@ -160,7 +163,7 @@ public:
     }
 
     void update(MuxDriver& mux) override {
-        if (!_active) return;
+        if (!_active || !muxCanDriveDigital()) return;
         if (millis() - _startMs >= _duration) {
             mux.selectChannel(ch);
             pinMode(MUX_PIN_SIG, OUTPUT);

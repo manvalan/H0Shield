@@ -40,9 +40,15 @@ public:
         uint8_t dist = _tof->readRangeSingleMillimeters();
 
         if (_tof->timeoutOccurred()) {
+            if (++_failCount >= 5) {
+                _present = false;
+                if (_live) _live->tof.enabled = false;
+                Serial.println("[ToF] Disabled after repeated I2C errors");
+            }
             _setValid(false, "timeout");
             return;
         }
+        _failCount = 0;
 
         uint8_t errCode = _tof->readReg(VL6180X::RESULT__RANGE_STATUS) >> 4;
         if (errCode != 0) {
@@ -90,6 +96,7 @@ private:
     RocrailProtocol*  _rocrail      = nullptr;
     LiveStatus*       _live         = nullptr;
     bool              _present      = false;
+    uint8_t           _failCount    = 0;
     unsigned long     _lastMs       = 0;
     unsigned long     _lastAmbientMs= 0;
     uint8_t           _prevDist     = 255;

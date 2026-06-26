@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <map>
+#include <memory>
 #include <vector>
 #include "Config.h"
 #include "ChannelObjects.h"
@@ -132,6 +133,10 @@ public:
 
     // ── Turnout pulse watchdog – call every loop() ───────────────────
     void update(MuxDriver& mux) {
+        if (_testTurnout) {
+            _testTurnout->update(mux);
+            if (!_testTurnout->isBusy()) _testTurnout.reset();
+        }
         for (auto& [id, t] : _turnouts) {
             t->update(mux);
         }
@@ -166,6 +171,130 @@ public:
         return topic == ROCRAIL_TOPIC_SG_CMD || topic == ROCRAIL_TOPIC_SW_CMD;
     }
 
+#ifdef USE_PCA9685
+    void setPcaDriver(Adafruit_PWMServoDriver* pca) { _pca = pca; }
+#endif
+
+    /** Test segnale da UI: id salvato oppure chR/chG/chV dal form. */
+    bool testSignal(JsonObject doc, MuxDriver& mux, String& err) {
+        String aspect = doc["cmd"] | doc["aspect"] | "";
+        if (aspect.isEmpty()) {
+            err = "Aspect mancante (es. red, green, yellow, stop, go)";
+            return false;
+        }
+
+        String id = doc["id"] | "";
+        auto it = id.length() ? _signals.find(id) : _signals.end();
+        if (it != _signals.end()) {
+            SignalEntry& e = it->second;
+            SignalAspect asp = _parseAspect(aspect, e.type);
+            _applySignalAspect(e, asp);
+            _flushSignalOutput(e, mux);
+            e.aspect = aspect;
+            _syncLiveLamps(id, e);
+            return true;
+        }
+
+        const bool usePca = doc["use_pca"] | false;
+        const uint8_t typeVal = doc["type"] | 0;
+        const SignalType sigType = (typeVal == 1) ? SignalType::SHUNT : SignalType::MAIN;
+        const uint8_t chR = doc["chR"] | 0;
+        const uint8_t chG = doc["chG"] | 1;
+        const uint8_t chV = doc["chV"] | 2;
+        const SignalAspect asp = _parseAspect(aspect, sigType);
+
+#ifdef USE_PCA9685
+        if (usePca) {
+            if (!_pca) {
+                err = "PCA9685 non disponibile su questo hardware";
+                return false;
+            }
+            PCA9685Signal ps("_test", sigType, _pca, chR, chG, chV);
+            ps.setAspect(asp);
+            if (id.length() && _live) {
+                SignalLive& sl = _live->signals[id];
+                sl.type   = static_cast<uint8_t>(sigType);
+                sl.aspect = aspect;
+                sl.lamps.r = ps.lampR;
+                sl.lamps.g = ps.lampG;
+                sl.lamps.v = ps.lampV;
+            }
+            return true;
+        }
+#endif
+
+        if (!muxCanDriveDigital()) {
+            err = "Uscita MUX su GPIO34 (solo ingresso) — segnali non pilotabili su questo ESP32";
+            return false;
+        }
+        if (!doc["chR"].is<int>() && id.length()) {
+            err = "Segnale non attivo — salva e riavvia, oppure indica chR/chG/chV";
+            return false;
+        }
+
+        SignalRGBChannel ch(chR, chG, chV);
+        SignalEntry tmp{};
+        tmp.type = sigType;
+        tmp.ch   = &ch;
+        _applySignalAspect(tmp, asp);
+        ch.update(mux);
+        if (id.length() && _live) {
+            SignalLive& sl = _live->signals[id];
+            sl.type   = static_cast<uint8_t>(sigType);
+            sl.aspect = aspect;
+            sl.lamps.r = ch.r;
+            sl.lamps.g = ch.g;
+            sl.lamps.v = ch.b;
+        }
+        return true;
+    }
+
+    /** Test scambio da UI: id salvato oppure chS/chD dal form. */
+    bool testTurnout(JsonObject doc, MuxDriver& mux, String& err) {
+        String cmd = doc["cmd"] | "";
+        if (cmd.isEmpty()) {
+            err = "Comando mancante (straight o turnout)";
+            return false;
+        }
+        if (cmd != "straight" && cmd != "turnout") {
+            err = "Comando scambio non valido";
+            return false;
+        }
+        if (!muxCanDriveDigital()) {
+            err = "Uscita MUX su GPIO34 (solo ingresso) — scambi non pilotabili su questo ESP32";
+            return false;
+        }
+
+        String id = doc["id"] | "";
+        auto it = id.length() ? _turnouts.find(id) : _turnouts.end();
+        if (it != _turnouts.end()) {
+            TurnoutChannel* t = it->second;
+            if (t->isBusy()) {
+                err = "Scambio in movimento — attendi fine impulso";
+                return false;
+            }
+            if (cmd == "straight") t->commandStraight(mux);
+            else t->commandDiverge(mux);
+            return true;
+        }
+
+        if (!doc["chS"].is<int>() && id.length()) {
+            err = "Scambio non attivo — salva e riavvia, oppure indica chS/chD";
+            return false;
+        }
+
+        const uint8_t chS = doc["chS"] | 0;
+        const uint8_t chD = doc["chD"] | 1;
+        const uint32_t pulse = doc["pulse"] | 300;
+
+        _testTurnout = std::make_unique<TurnoutChannel>(
+            id.length() ? id : "_test", chS, chD, pulse);
+        _testTurnout->begin(mux);
+        if (cmd == "straight") _testTurnout->commandStraight(mux);
+        else _testTurnout->commandDiverge(mux);
+        return true;
+    }
+
 private:
     struct SignalEntry {
         SignalType        type;
@@ -181,6 +310,10 @@ private:
     std::map<uint8_t, String>         _sensorsRb;
     std::vector<String>               _tofBlocks;
     LiveStatus*                       _live = nullptr;
+#ifdef USE_PCA9685
+    Adafruit_PWMServoDriver*          _pca  = nullptr;
+#endif
+    std::unique_ptr<TurnoutChannel>   _testTurnout;
 
     // ── XML helpers ───────────────────────────────────────────────────
     static String _attr(const String& xml, const String& name) {
@@ -305,6 +438,13 @@ private:
         e.ch->r = r;
         e.ch->g = g;
         e.ch->b = b;
+    }
+
+    void _flushSignalOutput(SignalEntry& e, MuxDriver& mux) {
+#ifdef USE_PCA9685
+        if (e.pca) return;
+#endif
+        if (e.ch) e.ch->update(mux);
     }
 
     void _syncLiveLamps(const String& id, SignalEntry& e) {

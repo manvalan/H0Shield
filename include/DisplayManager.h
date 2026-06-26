@@ -23,6 +23,8 @@ class DisplayManager {
 public:
     void begin(ConfigManager& cfgMgr, const HardwareProbe& hw, I2cBus& bus) {
         _cfg = &cfgMgr;
+        _hw  = &hw;
+        _bus = &bus;
         _count = 0;
 
         for (uint8_t i = 0; i < cfgMgr.cfg.numDisplays && i < BoardConfig::MAX_DISPLAYS; i++) {
@@ -105,6 +107,30 @@ public:
         }
     }
 
+    /** Applica payload SIP (topic railway/info) — anche da test UI senza broker. */
+    bool injectInfoFromJson(JsonObject doc, String& err) {
+        if (doc["display"].is<JsonObject>()) {
+            if (!_upsertRuntimeFromJson(doc["display"], err))
+                return false;
+        }
+        JsonDocument payload;
+        JsonObject root = payload.to<JsonObject>();
+        for (JsonPair kv : doc) {
+            if (strcmp(kv.key().c_str(), "display") == 0) continue;
+            if (strcmp(kv.key().c_str(), "type") == 0) {
+                const char* tv = kv.value().as<const char*>();
+                if (tv && strcmp(tv, "display_info") == 0) continue;
+            }
+            root[kv.key().c_str()] = kv.value();
+        }
+        const uint8_t n = _processInfoPayload(root);
+        if (n == 0) {
+            err = "Nessun display corrisponde (controlla station_id, binario, display_id)";
+            return false;
+        }
+        return true;
+    }
+
     /** Sistema informativo plastico — topic unico JSON (railway/info). */
     bool handleInfoMqtt(const String& topic, const String& payload) {
         if (_count == 0 || !_cfg->cfg.infoMqttEnabled) return false;
@@ -117,34 +143,7 @@ public:
             return true;
         }
 
-        uint8_t updated = 0;
-
-        if (doc["platforms"].is<JsonArray>()) {
-            const char* stId = doc["station_id"] | doc["station"] | "";
-            const char* stName = doc["station_name"] | doc["station"] | "";
-            for (JsonObject item : doc["platforms"].as<JsonArray>()) {
-                if (stId[0] && !item["station_id"].is<const char*>())
-                    item["station_id"] = stId;
-                if (stName[0] && !item["station_name"].is<const char*>() &&
-                    !item["station"].is<const char*>())
-                    item["station_name"] = stName;
-                updated += _applyInfoPlatform(item);
-            }
-        }
-
-        JsonObject tt = doc["timetable"].is<JsonObject>()
-            ? doc["timetable"].as<JsonObject>() : doc.as<JsonObject>();
-        const char* type = doc["type"] | tt["type"] | "";
-        if (strcmp(type, "timetable") == 0 || tt["rows"].is<JsonArray>() ||
-            doc["rows"].is<JsonArray>()) {
-            updated += _applyInfoTimetable(tt);
-        }
-
-        if (doc["platform"].is<int>() || doc["platform_num"].is<int>() ||
-            doc["display_id"].is<const char*>()) {
-            updated += _applyInfoPlatform(doc.as<JsonObject>());
-        }
-
+        const uint8_t updated = _processInfoPayload(doc.as<JsonObject>());
         if (updated > 0)
             Serial.printf("[DISP/SIP] Updated %u display(s)\n", updated);
         return true;
@@ -256,6 +255,8 @@ private:
     };
 
     ConfigManager*  _cfg         = nullptr;
+    const HardwareProbe* _hw     = nullptr;
+    I2cBus*         _bus         = nullptr;
     RuntimeDisplay  _rt[BoardConfig::MAX_DISPLAYS];
     uint8_t         _count       = 0;
     unsigned long   _lastDrawMs  = 0;
@@ -286,6 +287,80 @@ private:
         return -1;
     }
 
+    static void _parseDisplayJson(DisplayConfig& d, JsonObject dp) {
+        strlcpy(d.id, dp["id"] | "", sizeof(d.id));
+        const char* typeStr = dp["type"] | "platform";
+        d.type = (strcmp(typeStr, "timetable") == 0)
+            ? DisplayType::TIMETABLE : DisplayType::PLATFORM;
+        d.i2cSlot = dp["i2c_slot"].isNull()
+            ? 255 : static_cast<uint8_t>(dp["i2c_slot"].as<uint8_t>());
+        d.i2cAddr = static_cast<uint8_t>(dp["i2c_addr"] | 0x3C);
+        d.platformNum = dp["platform_num"] | 1;
+        strlcpy(d.stationId, dp["station_id"] | "", sizeof(d.stationId));
+        strlcpy(d.stationName, dp["station_name"] | "Stazione H0", sizeof(d.stationName));
+        strlcpy(d.destination, dp["destination"] | "", sizeof(d.destination));
+        strlcpy(d.departureTime, dp["departure_time"] | "", sizeof(d.departureTime));
+        strlcpy(d.status, dp["status"] | "libero", sizeof(d.status));
+        d.numRows = 0;
+        for (JsonObject row : dp["rows"].as<JsonArray>()) {
+            if (d.numRows >= DisplayConfig::MAX_ROWS) break;
+            TimetableRowConfig& r = d.rows[d.numRows++];
+            strlcpy(r.timeStr, row["time"] | "", sizeof(r.timeStr));
+            const char* dest = row["destination"] | row["dest"] | "";
+            strlcpy(r.destination, dest, sizeof(r.destination));
+            const char* bin = row["platform"] | row["bin"] | "";
+            strlcpy(r.platformBin, bin, sizeof(r.platformBin));
+            strlcpy(r.status, row["status"] | "", sizeof(r.status));
+        }
+    }
+
+    void _initRuntimeOled(RuntimeDisplay& rd) {
+#ifdef USE_DISPLAY
+        if (!rd.present || rd.u8g2) return;
+        rd.u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(
+            U8G2_R0, U8X8_PIN_NONE, I2C_SCL, I2C_SDA);
+        rd.u8g2->setI2CAddress(static_cast<uint8_t>(rd.data.i2cAddr << 1));
+        rd.u8g2->begin();
+        rd.u8g2->setContrast(255);
+        rd.u8g2->clearBuffer();
+        rd.u8g2->sendBuffer();
+#endif
+    }
+
+    bool _upsertRuntimeFromJson(JsonObject dp, String& err) {
+        if (!_hw || !_bus) {
+            err = "Display manager non inizializzato";
+            return false;
+        }
+        DisplayConfig tmp = {};
+        _parseDisplayJson(tmp, dp);
+        if (!tmp.id[0]) {
+            err = "ID display mancante";
+            return false;
+        }
+
+        int idx = _findById(tmp.id);
+        if (idx < 0) {
+            if (_count >= BoardConfig::MAX_DISPLAYS) {
+                err = "Troppi display (salva e riavvia)";
+                return false;
+            }
+            idx = _count++;
+            _rt[idx] = {};
+        }
+
+        RuntimeDisplay& rd = _rt[idx];
+        const bool addrChanged = rd.data.i2cAddr != tmp.i2cAddr ||
+                                 rd.data.i2cSlot != tmp.i2cSlot;
+        rd.data = tmp;
+        uint8_t slot = rd.data.i2cSlot < I2C_SLOTS ? rd.data.i2cSlot : 0;
+        if (!rd.present || addrChanged)
+            rd.present = _probePresent(rd.data.i2cAddr, *_hw, *_bus, slot);
+        rd.dirty = true;
+        _initRuntimeOled(rd);
+        return true;
+    }
+
     static bool _ieq(const char* a, const char* b) {
         if (!a || !b || !a[0] || !b[0]) return false;
         return strcasecmp(a, b) == 0;
@@ -313,7 +388,13 @@ private:
             return id[0] && _ieq(id, d.id);
         }
 
-        int plat = msg["platform"] | msg["platform_num"] | -1;
+        int plat = -1;
+        if (msg["platform"].is<const char*>())
+            plat = atoi(msg["platform"].as<const char*>());
+        else if (msg["platform_num"].is<const char*>())
+            plat = atoi(msg["platform_num"].as<const char*>());
+        else
+            plat = msg["platform"] | msg["platform_num"] | -1;
         if (plat < 0 || static_cast<uint8_t>(plat) != d.platformNum) return false;
 
         if (msg["station_id"].is<const char*>() || msg["station"].is<const char*>() ||
@@ -343,7 +424,13 @@ private:
         const char* dest = msg["destination"] | msg["dest"] | nullptr;
         const char* time = msg["departure_time"] | msg["time"] | nullptr;
         const char* st   = msg["status"] | nullptr;
-        int plat         = msg["platform"] | msg["platform_num"] | -1;
+        int plat         = -1;
+        if (msg["platform"].is<const char*>())
+            plat = atoi(msg["platform"].as<const char*>());
+        else if (msg["platform_num"].is<const char*>())
+            plat = atoi(msg["platform_num"].as<const char*>());
+        else
+            plat = msg["platform"] | msg["platform_num"] | -1;
 
         if (dest) strlcpy(d.destination, dest, sizeof(d.destination));
         if (time)  strlcpy(d.departureTime, time, sizeof(d.departureTime));
@@ -398,6 +485,39 @@ private:
             n++;
         }
         return n;
+    }
+
+    uint8_t _processInfoPayload(JsonObject doc) {
+        uint8_t updated = 0;
+
+        if (doc["platforms"].is<JsonArray>()) {
+            const char* stId = doc["station_id"] | doc["station"] | "";
+            const char* stName = doc["station_name"] | doc["station"] | "";
+            for (JsonObject item : doc["platforms"].as<JsonArray>()) {
+                if (stId[0] && !item["station_id"].is<const char*>())
+                    item["station_id"] = stId;
+                if (stName[0] && !item["station_name"].is<const char*>() &&
+                    !item["station"].is<const char*>())
+                    item["station_name"] = stName;
+                updated += _applyInfoPlatform(item);
+            }
+        }
+
+        JsonObject tt = doc["timetable"].is<JsonObject>()
+            ? doc["timetable"].as<JsonObject>() : doc;
+        const char* type = doc["type"] | tt["type"] | "";
+        if (strcmp(type, "timetable") == 0 || tt["rows"].is<JsonArray>() ||
+            doc["rows"].is<JsonArray>()) {
+            updated += _applyInfoTimetable(tt);
+        }
+
+        if (doc["platform"].is<int>() || doc["platform"].is<const char*>() ||
+            doc["platform_num"].is<int>() || doc["platform_num"].is<const char*>() ||
+            doc["display_id"].is<const char*>()) {
+            updated += _applyInfoPlatform(doc);
+        }
+
+        return updated;
     }
 
     static uint8_t _visibleRows(const DisplayConfig& d) {

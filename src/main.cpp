@@ -80,6 +80,7 @@ uint8_t countConfiguredMuxChannels();
 // ─────────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
+    delay(200);
     Serial.println("\n\n==== ShieldH0 booting ====");
 
     // ── Reset button ──────────────────────────────────────────────────
@@ -95,31 +96,54 @@ void setup() {
     }
 
     // ── Phase 1: WiFi ─────────────────────────────────────────────────
-    if (digitalRead(WIFI_RESET_PIN) == LOW) {
-        Serial.println("[WIFI] Reset button – cancello credenziali");
-        SecureStore::clearWifi();
-        cfgMgr.cfg.wifiSsid[0] = '\0';
-        cfgMgr.cfg.lastStaIp[0] = '\0';
-        cfgMgr.save();
-    }
+    // Reset WiFi solo con pressione lunga (checkResetButton), non al boot:
+    // GPIO0 è spesso LOW durante upload USB e cancellerebbe le credenziali.
     setupWiFi(cfgMgr);
 
     // Web subito — accessibile via AP 192.168.4.1 mentre il resto inizializza
-    webConfig.begin(cfgMgr, &liveStatus, [](const String& type, const String& id,
-                                             const String& cmd, const String& extra) {
-        if (type == "signal") {
-            String xml = "<sg id=\"" + id + "\" cmd=\"aspect\" aspect=\"" + cmd + "\"/>";
-            rocrail.handle(ROCRAIL_TOPIC_SG_CMD, xml, mqtt, mux);
-        } else if (type == "turnout") {
-            String xml = "<sw id=\"" + id + "\" cmd=\"" + cmd + "\" addr1=\"0\"/>";
-            rocrail.handle(ROCRAIL_TOPIC_SW_CMD, xml, mqtt, mux);
-        } else if (type == "accessory") {
-            accessoryMgr.handleCommand(id, cmd);
+    webConfig.begin(cfgMgr, &liveStatus, [](JsonObject doc, JsonObject result, String& err) -> bool {
+        String type = doc["type"] | "";
+        if (type == "accessory") {
+            if (!accessoryMgr.testFromJson(doc, err)) return false;
             accessoryMgr.publishState(mqtt);
+            return true;
         }
+        if (type == "display_info") {
+            if (!displayMgr.injectInfoFromJson(doc, err)) return false;
+            return true;
+        }
+        if (type == "sensor") {
+            if (!doc["mux_ch"].is<int>()) {
+                err = "Canale MUX mancante";
+                return false;
+            }
+            const uint8_t ch = doc["mux_ch"] | 0;
+            if (ch >= MUX_CHANNELS) {
+                err = "Canale MUX non valido";
+                return false;
+            }
+            mux.selectChannel(ch);
+            pinMode(MUX_PIN_SIG, INPUT);
+            const uint16_t raw = mux.readAnalog();
+            const uint16_t th = doc["threshold"] | cfgMgr.cfg.sensorThreshold;
+            result["raw"]      = raw;
+            result["threshold"] = th;
+            result["occupied"] = raw > th;
+            return true;
+        }
+        if (type == "signal") {
+            if (!rocrail.testSignal(doc, mux, err)) return false;
+            rocrail.syncLiveStatus();
+            return true;
+        }
+        if (type == "turnout") {
+            if (!rocrail.testTurnout(doc, mux, err)) return false;
+            rocrail.syncLiveStatus();
+            return true;
+        }
+        err = "Tipo test sconosciuto";
+        return false;
     }, &displayMgr, &i2cBus);
-
-    ensureMdns(cfgMgr);
 
     // ── Phase 2: Hardware init (all optional except WiFi/web) ─────────
     HardwareProbe hw;
@@ -136,14 +160,20 @@ void setup() {
         tof.init();
         tof.configureDefault();
         tof.setTimeout(500);
-        tofPresent = true;
-        Serial.printf("[HW] VL6180X on slot U%u\n", tofSlot + 9);
+        uint8_t test = tof.readRangeSingleMillimeters();
+        if (!tof.timeoutOccurred()) {
+            tofPresent = true;
+            Serial.printf("[HW] VL6180X on slot U%u\n", tofSlot + 9);
+        } else {
+            Serial.println("[HW] VL6180X not responding – disabled");
+        }
     }
     if (hw.pca9685) {
 #ifdef USE_PCA9685
         pca9685.begin();
         pca9685.setPWMFreq(200);
         pcaPresent = true;
+        rocrail.setPcaDriver(&pca9685);
         Serial.println("[HW] PCA9685 initialized @ 0x40");
 #else
         Serial.println("[HW] PCA9685 detected (build with -e wemos_d1_mini32_pca to use)");
@@ -160,6 +190,8 @@ void setup() {
     const uint8_t muxUsed = countConfiguredMuxChannels();
     if (muxUsed > 0) {
         mux.begin();
+        if (!muxCanDriveDigital())
+            Serial.println("[HW] MUX relay output disabled (GPIO34 input-only on ESP32)");
         Serial.printf("[HW] MUX active – %u channel(s) configured\n", muxUsed);
     } else {
         Serial.println("[HW] MUX idle – no channels configured yet");
@@ -217,6 +249,7 @@ void loop() {
     checkResetButton();
     wifiBootLoop(cfgMgr);
     wifiJob.loop();
+    wifiLinkWatchdog(cfgMgr);
     ensureMdns(cfgMgr);
     if (wifiHasStaIp()) wifiSaveLastIp(cfgMgr);
     ota.loop();
@@ -518,21 +551,31 @@ void onMqttCommand(const String& topic, const String& payload) {
     }
 }
 
-// ── mDNS (opzionale) — l'IP LAN è l'accesso affidabile ───────────────
+// ── mDNS (opzionale) — l'IP LAN resta l'accesso affidabile ───────────
 static bool g_mdnsReady = false;
 
 void ensureMdns(ConfigManager& cfgMgr) {
-    if (!wifiHasStaIp()) return;
+    if (!wifiHasStaIp()) {
+        if (g_mdnsReady) {
+            MDNS.end();
+            g_mdnsReady = false;
+        }
+        return;
+    }
     if (g_mdnsReady) return;
 
     char host[32];
     wifiNormalizeHostname(cfgMgr.cfg.hostname, host, sizeof(host));
     WiFi.setHostname(host);
+
     if (MDNS.begin(host)) {
         MDNS.addService("http", "tcp", 80);
+        MDNS.addServiceTxt("http", "tcp", "path", "/");
         g_mdnsReady = true;
-        Serial.printf("[mDNS] http://%s.local/ (usa http://%s/)\n",
+        Serial.printf("[mDNS] http://%s.local/ (preferisci http://%s/)\n",
                       host, WiFi.localIP().toString().c_str());
+    } else {
+        Serial.println("[mDNS] registrazione fallita — usa l'IP in Dashboard");
     }
 }
 

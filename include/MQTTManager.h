@@ -37,13 +37,15 @@ public:
     void loop() {
         if (!_enabled) return;
 
-        if (!_client.connected()) _reconnect();
-        _client.loop();
-
-        if (_client.connected() &&
-            millis() - _lastHeartbeat > MQTT_HEARTBEAT_MS) {
-            _lastHeartbeat = millis();
-            _client.publish(_cfg->topic("status/heartbeat").c_str(), "online", true);
+        if (!_client.connected()) {
+            if (millis() >= _nextReconnectMs)
+                _reconnect();
+        } else {
+            _client.loop();
+            if (millis() - _lastHeartbeat > MQTT_HEARTBEAT_MS) {
+                _lastHeartbeat = millis();
+                _client.publish(_cfg->topic("status/heartbeat").c_str(), "online", true);
+            }
         }
     }
 
@@ -75,8 +77,11 @@ private:
     CommandHandler   _handler;
     OnConnectHandler _onConnect;
     unsigned long    _lastHeartbeat = 0;
+    unsigned long    _nextReconnectMs = 0;
+    unsigned long    _lastResolveMs  = 0;
     uint8_t          _retries       = 0;
     bool             _enabled       = false;
+    bool             _brokerResolved = false;
     IPAddress        _resolvedBroker;
 
     // Resolve broker address (supports IP strings and *.local mDNS hostnames)
@@ -84,27 +89,36 @@ private:
         const char* broker = _cfg->cfg.mqttBroker;
         if (broker[0] == '\0') return false;
 
-        // Try direct IP parse first
-        if (_resolvedBroker.fromString(broker)) return true;
+        if (_brokerResolved) return true;
 
-        // mDNS resolution (works for "plastico.local" etc.)
+        if (millis() - _lastResolveMs < 15000) return false;
+        _lastResolveMs = millis();
+
+        if (_resolvedBroker.fromString(broker)) {
+            _brokerResolved = true;
+            return true;
+        }
+
         Serial.printf("[MQTT] Resolving mDNS: %s\n", broker);
-        _resolvedBroker = MDNS.queryHost(broker, 2000);
+        _resolvedBroker = MDNS.queryHost(broker, 1500);
         if (_resolvedBroker == IPAddress(0, 0, 0, 0)) {
             Serial.println("[MQTT] mDNS resolution failed");
             return false;
         }
         Serial.printf("[MQTT] Resolved %s → %s\n", broker,
                       _resolvedBroker.toString().c_str());
+        _brokerResolved = true;
         return true;
     }
 
     void _reconnect() {
-        if (_retries > 5) {
-            static unsigned long _backoffUntil = 0;
-            if (millis() < _backoffUntil) return;
-            _backoffUntil = millis() + 30000;
+        _nextReconnectMs = millis() + 8000;
+
+        if (_retries >= 5) {
+            _nextReconnectMs = millis() + 60000;
             _retries = 0;
+            Serial.println("[MQTT] Backoff 60s – broker non raggiungibile");
+            return;
         }
 
         if (!_resolveBroker()) {
@@ -122,12 +136,12 @@ private:
             _cfg->cfg.hostname,
             _cfg->cfg.mqttUser[0] ? _cfg->cfg.mqttUser : nullptr,
             _cfg->cfg.mqttPass[0] ? _cfg->cfg.mqttPass : nullptr,
-            _cfg->topic("status/heartbeat").c_str(),  // LWT topic
-            1, true, "offline"                         // LWT
-        );
+            _cfg->topic("status/heartbeat").c_str(),
+            1, true, "offline");
 
         if (ok) {
             _retries = 0;
+            _nextReconnectMs = 0;
             Serial.println("[MQTT] Connected");
             _client.subscribe(_cfg->topic("command/set").c_str());
             Serial.printf("[MQTT] Subscribed to %s\n",

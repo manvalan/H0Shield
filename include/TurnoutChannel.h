@@ -70,6 +70,7 @@ private:
     }
 
     void _drivePin(uint8_t ch, bool on, MuxDriver& mux) {
+        if (!muxCanDriveDigital()) return;
         mux.selectChannel(ch);
         pinMode(MUX_PIN_SIG, OUTPUT);
         mux.writeDigital(on);
